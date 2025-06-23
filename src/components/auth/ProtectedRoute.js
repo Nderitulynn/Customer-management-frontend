@@ -1,7 +1,7 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { AuthContext } from '../../context/AuthContext';
-import { checkPermission } from '../../utils/permissions';
+import { useAuth } from '../../context/AuthContext';
+import { checkPermission, hasRole } from '../../utils/permissions';
 import LoadingSpinner from '../common/LoadingSpinner';
 
 const ProtectedRoute = ({ 
@@ -12,7 +12,7 @@ const ProtectedRoute = ({
   showFallback = false,
   fallbackComponent = null 
 }) => {
-  const { user, isAuthenticated, isLoading, checkAuthStatus } = useContext(AuthContext);
+  const { user, isAuthenticated, isLoading, checkAuthStatus } = useAuth();
   const [isChecking, setIsChecking] = useState(true);
   const location = useLocation();
 
@@ -48,40 +48,32 @@ const ProtectedRoute = ({
   }
 
   // Check role-based access
-  if (allowedRoles.length > 0) {
-    const hasAllowedRole = allowedRoles.includes(user?.role);
-    if (!hasAllowedRole) {
-      if (showFallback && fallbackComponent) {
-        return fallbackComponent;
-      }
-      return (
-        <Navigate 
-          to="/unauthorized" 
-          state={{ from: location.pathname }} 
-          replace 
-        />
-      );
+  if (allowedRoles.length > 0 && !hasRole(user, allowedRoles)) {
+    if (showFallback && fallbackComponent) {
+      return fallbackComponent;
     }
+    return (
+      <Navigate 
+        to="/unauthorized" 
+        state={{ from: location.pathname }} 
+        replace 
+      />
+    );
   }
 
   // Check permission-based access
-  if (requiredPermissions.length > 0) {
-    const hasPermission = requiredPermissions.every(permission => 
-      checkPermission(user, permission)
-    );
-    
-    if (!hasPermission) {
-      if (showFallback && fallbackComponent) {
-        return fallbackComponent;
-      }
-      return (
-        <Navigate 
-          to="/unauthorized" 
-          state={{ from: location.pathname }} 
-          replace 
-        />
-      );
+  if (requiredPermissions.length > 0 && 
+      !requiredPermissions.every(perm => checkPermission(user, perm))) {
+    if (showFallback && fallbackComponent) {
+      return fallbackComponent;
     }
+    return (
+      <Navigate 
+        to="/unauthorized" 
+        state={{ from: location.pathname }} 
+        replace 
+      />
+    );
   }
 
   // All checks passed, render the protected component
