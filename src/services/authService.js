@@ -1,4 +1,4 @@
-import { apiMethods, API_ENDPOINTS } from './api';
+import { apiHelpers as apiMethods, API_ENDPOINTS } from './api';
 
 class AuthService {
   constructor() {

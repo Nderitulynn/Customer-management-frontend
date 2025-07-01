@@ -472,5 +472,5 @@ export const useAuth = () => {
   return context;
 };
 
-// Export context for direct access if needed
+export { AuthContext };
 export default AuthContext;

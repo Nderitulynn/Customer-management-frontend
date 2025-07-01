@@ -14,8 +14,8 @@ class NotificationService {
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 5;
     this.reconnectInterval = 5000;
-    this.soundEnabled = storage.getNotificationSound() !== false;
-    this.desktopEnabled = storage.getDesktopNotifications() !== false;
+    this.soundEnabled = storage.get('notificationSound') !== false;
+   this.desktopEnabled = storage.get('desktopNotifications') !== false;
     this.listeners = new Map();
   }
 
@@ -25,7 +25,7 @@ class NotificationService {
    */
   async initializeRealTime() {
     try {
-      const token = storage.getToken();
+      const token = storage.get('token');
       if (!token) {
         console.warn('No authentication token found for notifications');
         return false;
@@ -373,8 +373,8 @@ class NotificationService {
       this.desktopEnabled = settings.desktopEnabled !== false;
       
       // Store in localStorage
-      storage.setNotificationSound(this.soundEnabled);
-      storage.setDesktopNotifications(this.desktopEnabled);
+      storage.set('notificationSound', this.soundEnabled);
+      storage.set('desktopNotifications', this.desktopEnabled);
 
       this.emit('settings:updated', settings);
 
@@ -516,7 +516,7 @@ class NotificationService {
 
       const permission = await Notification.requestPermission();
       this.desktopEnabled = permission === 'granted';
-      storage.setDesktopNotifications(this.desktopEnabled);
+      storage.set('desktopNotifications', this.desktopEnabled);
 
       return permission;
     } catch (error) {

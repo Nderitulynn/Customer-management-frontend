@@ -1,5 +1,5 @@
 import React from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import AdminDashboard from '../components/dashboard/AdminDashboard';
 import AssistantDashboard from '../components/dashboard/AssistantDashboard';
 import RoleBasedComponent from '../components/auth/RoleBasedComponent';

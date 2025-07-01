@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
-import { notificationService } from '../services/notificationService';
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
+import notificationService from '../services/notificationService';
 
 // Initial state
 const initialState = {
@@ -46,6 +46,7 @@ const NOTIFICATION_ACTIONS = {
   
   // Settings
   UPDATE_SETTINGS: 'UPDATE_SETTINGS',
+  LOAD_SETTINGS: 'LOAD_SETTINGS',
   
   // Connection
   SET_CONNECTION_STATUS: 'SET_CONNECTION_STATUS',
@@ -96,7 +97,7 @@ const notificationReducer = (state, action) => {
       };
 
     case NOTIFICATION_ACTIONS.LOAD_NOTIFICATIONS_SUCCESS:
-      const notifications = action.payload;
+      const notifications = Array.isArray(action.payload) ? action.payload : [];
       return {
         ...state,
         notifications,
@@ -114,9 +115,11 @@ const notificationReducer = (state, action) => {
         read: false
       };
       
+      const currentNotifications = Array.isArray(state.notifications) ? state.notifications : [];
+      
       return {
         ...state,
-        notifications: [newNotification, ...state.notifications],
+        notifications: [newNotification, ...currentNotifications],
         unreadCount: state.unreadCount + 1,
         lastUpdated: new Date().toISOString()
       };
@@ -124,7 +127,7 @@ const notificationReducer = (state, action) => {
     case NOTIFICATION_ACTIONS.UPDATE_NOTIFICATION:
       return {
         ...state,
-        notifications: state.notifications.map(notification =>
+        notifications: (state.notifications || []).map(notification =>
           notification.id === action.payload.id
             ? { ...notification, ...action.payload.updates }
             : notification
@@ -133,10 +136,11 @@ const notificationReducer = (state, action) => {
       };
 
     case NOTIFICATION_ACTIONS.REMOVE_NOTIFICATION:
-      const removedNotification = state.notifications.find(n => n.id === action.payload);
+      const safeNotifications = state.notifications || [];
+      const removedNotification = safeNotifications.find(n => n.id === action.payload);
       return {
         ...state,
-        notifications: state.notifications.filter(n => n.id !== action.payload),
+        notifications: safeNotifications.filter(n => n.id !== action.payload),
         unreadCount: removedNotification && !removedNotification.read 
           ? state.unreadCount - 1 
           : state.unreadCount,
@@ -144,10 +148,11 @@ const notificationReducer = (state, action) => {
       };
 
     case NOTIFICATION_ACTIONS.MARK_AS_READ:
-      const notificationToRead = state.notifications.find(n => n.id === action.payload);
+      const notificationsForRead = state.notifications || [];
+      const notificationToRead = notificationsForRead.find(n => n.id === action.payload);
       return {
         ...state,
-        notifications: state.notifications.map(notification =>
+        notifications: notificationsForRead.map(notification =>
           notification.id === action.payload
             ? { ...notification, read: true, readAt: new Date().toISOString() }
             : notification
@@ -161,7 +166,7 @@ const notificationReducer = (state, action) => {
     case NOTIFICATION_ACTIONS.MARK_ALL_AS_READ:
       return {
         ...state,
-        notifications: state.notifications.map(notification => ({
+        notifications: (state.notifications || []).map(notification => ({
           ...notification,
           read: true,
           readAt: notification.read ? notification.readAt : new Date().toISOString()
@@ -185,8 +190,9 @@ const notificationReducer = (state, action) => {
         createdAt: new Date().toISOString()
       };
       
+      const currentToasts = Array.isArray(state.toasts) ? state.toasts : [];
       // Limit number of toasts
-      const updatedToasts = [newToast, ...state.toasts].slice(0, state.settings.maxToasts);
+      const updatedToasts = [newToast, ...currentToasts].slice(0, state.settings.maxToasts);
       
       return {
         ...state,
@@ -196,7 +202,7 @@ const notificationReducer = (state, action) => {
     case NOTIFICATION_ACTIONS.REMOVE_TOAST:
       return {
         ...state,
-        toasts: state.toasts.filter(toast => toast.id !== action.payload)
+        toasts: (state.toasts || []).filter(toast => toast.id !== action.payload)
       };
 
     case NOTIFICATION_ACTIONS.CLEAR_TOASTS:
@@ -205,10 +211,14 @@ const notificationReducer = (state, action) => {
         toasts: []
       };
 
+    case NOTIFICATION_ACTIONS.LOAD_SETTINGS:
+      return {
+        ...state,
+        settings: { ...state.settings, ...action.payload }
+      };
+
     case NOTIFICATION_ACTIONS.UPDATE_SETTINGS:
       const newSettings = { ...state.settings, ...action.payload };
-      // Save to localStorage
-      localStorage.setItem('notification_settings', JSON.stringify(newSettings));
       return {
         ...state,
         settings: newSettings
@@ -237,6 +247,8 @@ const NotificationContext = createContext();
 // Notification provider component
 export const NotificationProvider = ({ children }) => {
   const [state, dispatch] = useReducer(notificationReducer, initialState);
+  const connectionRef = useRef(null);
+  const toastTimeoutsRef = useRef(new Map());
 
   // Load settings from localStorage on initialization
   useEffect(() => {
@@ -260,12 +272,21 @@ export const NotificationProvider = ({ children }) => {
       if (savedSettings) {
         const settings = JSON.parse(savedSettings);
         dispatch({
-          type: NOTIFICATION_ACTIONS.UPDATE_SETTINGS,
+          type: NOTIFICATION_ACTIONS.LOAD_SETTINGS,
           payload: settings
         });
       }
     } catch (error) {
       console.error('Failed to load notification settings:', error);
+    }
+  };
+
+  // Save settings to localStorage
+  const saveSettings = (settings) => {
+    try {
+      localStorage.setItem('notification_settings', JSON.stringify(settings));
+    } catch (error) {
+      console.error('Failed to save notification settings:', error);
     }
   };
 
@@ -306,12 +327,12 @@ export const NotificationProvider = ({ children }) => {
   };
 
   // Setup real-time connection
-  const setupRealTimeConnection = () => {
+  const setupRealTimeConnection = async () => {
     try {
       dispatch({ type: NOTIFICATION_ACTIONS.SET_CONNECTION_STATUS, payload: 'connecting' });
       
       // Initialize WebSocket or Server-Sent Events connection
-      const connection = notificationService.setupRealTime({
+      const connection = await notificationService.initializeRealTime({
         onMessage: handleRealTimeNotification,
         onConnect: () => {
           dispatch({ type: NOTIFICATION_ACTIONS.SET_CONNECTION_STATUS, payload: 'connected' });
@@ -325,7 +346,7 @@ export const NotificationProvider = ({ children }) => {
         }
       });
 
-      return connection;
+      connectionRef.current = connection;
     } catch (error) {
       console.error('Failed to setup real-time connection:', error);
       dispatch({ type: NOTIFICATION_ACTIONS.SET_CONNECTION_STATUS, payload: 'disconnected' });
@@ -392,6 +413,7 @@ export const NotificationProvider = ({ children }) => {
       await notificationService.markAsRead(id);
     } catch (error) {
       console.error('Failed to mark notification as read:', error);
+      // Optionally revert the optimistic update
     }
   };
 
@@ -404,6 +426,7 @@ export const NotificationProvider = ({ children }) => {
       await notificationService.markAllAsRead();
     } catch (error) {
       console.error('Failed to mark all notifications as read:', error);
+      // Optionally revert the optimistic update
     }
   };
 
@@ -416,12 +439,13 @@ export const NotificationProvider = ({ children }) => {
       await notificationService.clearNotifications();
     } catch (error) {
       console.error('Failed to clear notifications:', error);
+      // Optionally revert the optimistic update
     }
   };
 
   // Show toast notification
   const showToast = (toast) => {
-    const toastId = Date.now().toString();
+    const toastId = toast.id || Date.now().toString();
     
     dispatch({
       type: NOTIFICATION_ACTIONS.ADD_TOAST,
@@ -433,9 +457,11 @@ export const NotificationProvider = ({ children }) => {
 
     // Auto-remove toast after specified duration
     if (toast.duration !== 0) { // 0 means persistent
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         removeToast(toastId);
       }, toast.duration || state.settings.toastDuration);
+      
+      toastTimeoutsRef.current.set(toastId, timeoutId);
     }
 
     return toastId;
@@ -443,6 +469,13 @@ export const NotificationProvider = ({ children }) => {
 
   // Remove toast
   const removeToast = (id) => {
+    // Clear any pending timeout
+    const timeoutId = toastTimeoutsRef.current.get(id);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      toastTimeoutsRef.current.delete(id);
+    }
+
     dispatch({
       type: NOTIFICATION_ACTIONS.REMOVE_TOAST,
       payload: id
@@ -451,6 +484,10 @@ export const NotificationProvider = ({ children }) => {
 
   // Clear all toasts
   const clearToasts = () => {
+    // Clear all pending timeouts
+    toastTimeoutsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
+    toastTimeoutsRef.current.clear();
+
     dispatch({ type: NOTIFICATION_ACTIONS.CLEAR_TOASTS });
   };
 
@@ -501,20 +538,25 @@ export const NotificationProvider = ({ children }) => {
 
   // Update notification settings
   const updateSettings = (newSettings) => {
+    const updatedSettings = { ...state.settings, ...newSettings };
+    
     dispatch({
       type: NOTIFICATION_ACTIONS.UPDATE_SETTINGS,
       payload: newSettings
     });
+
+    // Save to localStorage
+    saveSettings(updatedSettings);
   };
 
   // Get notifications by type
   const getNotificationsByType = (type) => {
-    return state.notifications.filter(notification => notification.type === type);
+    return (state.notifications || []).filter(notification => notification.type === type);
   };
 
   // Get unread notifications
   const getUnreadNotifications = () => {
-    return state.notifications.filter(notification => !notification.read);
+    return (state.notifications || []).filter(notification => !notification.read);
   };
 
   // Clear error
@@ -524,6 +566,16 @@ export const NotificationProvider = ({ children }) => {
 
   // Cleanup function
   const cleanup = () => {
+    // Clear all toast timeouts
+    toastTimeoutsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
+    toastTimeoutsRef.current.clear();
+
+    // Close real-time connection
+    if (connectionRef.current) {
+      connectionRef.current.close?.();
+    }
+
+    // Cleanup notification service
     notificationService.cleanup?.();
   };
 

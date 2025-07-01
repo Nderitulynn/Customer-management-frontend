@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
-import { checkPermission, hasRole } from '../../utils/permissions';
+import AuthContext, { useAuth } from '../../context/AuthContext';
+import { checkPermission, hasAnyRole } from '../../utils/permissions';
 import LoadingSpinner from '../common/LoadingSpinner';
 
 const ProtectedRoute = ({ 
@@ -12,23 +12,11 @@ const ProtectedRoute = ({
   showFallback = false,
   fallbackComponent = null 
 }) => {
-  const { user, isAuthenticated, isLoading, checkAuthStatus } = useAuth();
-  const [isChecking, setIsChecking] = useState(true);
+  const { user, isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
-  useEffect(() => {
-    const verifyAuth = async () => {
-      if (!isAuthenticated && !isLoading) {
-        await checkAuthStatus();
-      }
-      setIsChecking(false);
-    };
-
-    verifyAuth();
-  }, [isAuthenticated, isLoading, checkAuthStatus]);
-
   // Show loading spinner while checking authentication
-  if (isLoading || isChecking) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <LoadingSpinner size="large" message="Verifying access..." />
@@ -47,8 +35,8 @@ const ProtectedRoute = ({
     );
   }
 
-  // Check role-based access
-  if (allowedRoles.length > 0 && !hasRole(user, allowedRoles)) {
+  // Check role-based access - FIXED: Use hasAnyRole instead of hasRole
+  if (allowedRoles.length > 0 && !hasAnyRole(user, allowedRoles)) {
     if (showFallback && fallbackComponent) {
       return fallbackComponent;
     }

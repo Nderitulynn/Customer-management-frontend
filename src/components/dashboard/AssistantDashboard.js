@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
-import { useNotification } from '../../contexts/NotificationContext';
+import { useAuth } from '../../context/AuthContext';
+import { useNotifications } from '../../context/NotificationContext';
 import DashboardCard from './DashboardCard';
 import MetricsChart from './MetricsChart';
 import { 
@@ -19,7 +19,7 @@ import { customerService, orderService, taskService } from '../../services';
 
 const AssistantDashboard = () => {
   const { user } = useAuth();
-  const { showNotification } = useNotification();
+  const { showError, showSuccess, showInfo } = useNotification();
   
   // Loading states
   const [loading, setLoading] = useState(true);
@@ -104,7 +104,7 @@ const AssistantDashboard = () => {
 
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
-      showNotification('Error loading dashboard data', 'error');
+      showError('Error loading dashboard data');
     } finally {
       setLoading(false);
     }
@@ -133,7 +133,7 @@ const AssistantDashboard = () => {
 
     } catch (error) {
       console.error('Error fetching chart data:', error);
-      showNotification('Error loading metrics', 'error');
+      showError('Error loading metrics');
     } finally {
       setMetricsLoading(false);
     }
@@ -156,12 +156,12 @@ const AssistantDashboard = () => {
   const handleTaskComplete = async (taskId) => {
     try {
       await taskService.completeTask(taskId);
-      showNotification('Task marked as completed', 'success');
+      showSuccess('Task marked as completed');
       fetchDashboardData();
       fetchRecentActivities();
     } catch (error) {
       console.error('Error completing task:', error);
-      showNotification('Error completing task', 'error');
+     showError('Error completing task');
     }
   };
 

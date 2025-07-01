@@ -1,5 +1,5 @@
 import React, { useContext } from 'react';
-import { AuthContext } from '../../context/AuthContext';
+import { AuthContext } from '../../context/AuthContext';  // FIXED: Default import
 import { checkPermission, hasRole, hasAnyRole, hasAllRoles } from '../../utils/permissions';
 
 const RoleBasedComponent = ({

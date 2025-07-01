@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // API Base Configuration
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 // Create axios instance with base configuration
 const api = axios.create({
@@ -26,7 +26,7 @@ api.interceptors.request.use(
     config.metadata = { startTime: new Date() };
     
     // Log request in development
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.DEV) {
       console.log(`🚀 API Request: ${config.method?.toUpperCase()} ${config.url}`);
     }
 
@@ -46,7 +46,7 @@ api.interceptors.response.use(
     const duration = endTime.getTime() - response.config.metadata.startTime.getTime();
     
     // Log response in development
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.DEV) {
       console.log(`✅ API Response: ${response.status} ${response.config.url} (${duration}ms)`);
     }
 

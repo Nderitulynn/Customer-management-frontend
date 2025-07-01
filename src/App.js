@@ -1,9 +1,9 @@
 // src/App.js
 import { BrowserRouter as Router } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
-import { NotificationProvider } from './contexts/NotificationContext';
-import { ThemeProvider } from './contexts/ThemeContext';
-import AppRoutes from './routes/AppRoutes';  // Move routes to separate file
+import { AuthProvider } from './context/AuthContext';
+import { NotificationProvider } from './context/NotificationContext';
+import { ThemeProvider } from './context/ThemeContext';
+import AppRoutes from './routes/AppRoutes'; 
 
 function App() {
   return (

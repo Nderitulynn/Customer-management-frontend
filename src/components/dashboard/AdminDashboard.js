@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AuthContext } from '../../contexts/AuthContext';
-import { NotificationContext } from '../../contexts/NotificationContext';
+import { AuthContext } from '../../context/AuthContext';
+import  { useNotifications } from '../../context/NotificationContext';
 import DashboardCard, { PresetCard } from './DashboardCard';
 import MetricsChart, { PresetChart } from './MetricsChart';
 import {
@@ -22,13 +22,14 @@ import {
   Clock,
   Target,
   BarChart3,
-  PieChart
+  PieChart,
+  CheckCircle
 } from 'lucide-react';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user } = useContext(AuthContext);
-  const { addNotification } = useContext(NotificationContext);
+ const { showSuccess, showError, showInfo } = useNotifications();
 
   // Dashboard state
   const [dashboardData, setDashboardData] = useState({
@@ -103,7 +104,7 @@ const AdminDashboard = () => {
       setDashboardData(mockDashboardData);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
-      addNotification('Failed to load dashboard data', 'error');
+      showError('Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
@@ -113,12 +114,12 @@ const AdminDashboard = () => {
     setRefreshing(true);
     await loadDashboardData();
     setRefreshing(false);
-    addNotification('Dashboard data refreshed', 'success');
+   showSuccess('Dashboard data refreshed');
   };
 
   const handleExportData = () => {
     // Implementation for data export
-    addNotification('Exporting dashboard data...', 'info');
+    showInfo('Exporting dashboard data...');
   };
 
   const handleCardClick = (cardType) => {

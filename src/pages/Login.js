@@ -1,8 +1,8 @@
 import React, { useState, useContext } from 'react';
 import { Navigate } from 'react-router-dom';
-import { AuthContext } from '../contexts/AuthContext';
-import { ThemeContext } from '../contexts/ThemeContext';
-import { NotificationContext } from '../contexts/NotificationContext';
+import { AuthContext } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
+import { useNotifications } from '../context/NotificationContext';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
 const Login = () => {
@@ -14,9 +14,8 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
 
   const { login, isAuthenticated } = useContext(AuthContext);
-  const { isDarkMode } = useContext(ThemeContext);
-  const { showNotification } = useContext(NotificationContext);
-
+  const { isDarkMode } = useTheme();
+  const { showError, showSuccess, showInfo } = useNotifications();
   // Redirect if already authenticated
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />;
@@ -34,7 +33,7 @@ const Login = () => {
     e.preventDefault();
     
     if (!formData.email || !formData.password) {
-      showNotification('Please fill in all fields', 'error');
+      showError('Please fill in all fields');
       return;
     }
 
@@ -42,9 +41,9 @@ const Login = () => {
     
     try {
       await login(formData.email, formData.password);
-      showNotification('Login successful!', 'success');
+     showSuccess('Login successful!'); 
     } catch (error) {
-      showNotification(error.message || 'Login failed. Please try again.', 'error');
+     showError(error.message || 'Login failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
