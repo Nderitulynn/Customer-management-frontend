@@ -150,8 +150,9 @@ export const AuthProvider = ({ children }) => {
   // Initialize authentication
   const initializeAuth = async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      const userData = localStorage.getItem('user_data');
+      // Updated storage keys to match AuthService
+      const token = localStorage.getItem('token');
+      const userData = localStorage.getItem('user');
 
       if (token && userData) {
         const user = JSON.parse(userData);
@@ -183,6 +184,30 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Helper function to format error messages
+  const formatErrorMessage = (error) => {
+    // Handle validation errors from backend
+    if (error.response?.data?.errors) {
+      const errors = error.response.data.errors;
+      if (Array.isArray(errors)) {
+        return errors.map(err => err.message || err.msg || err).join(', ');
+      }
+      return 'Validation failed. Please check your input.';
+    }
+    
+    // Handle standard error messages
+    if (error.response?.data?.message) {
+      return error.response.data.message;
+    }
+    
+    // Handle network errors
+    if (error.message) {
+      return error.message;
+    }
+    
+    return 'An unexpected error occurred. Please try again.';
+  };
+
   // Login function
   const login = async (credentials) => {
     try {
@@ -190,13 +215,16 @@ export const AuthProvider = ({ children }) => {
 
       const response = await authService.login(credentials);
       
-      if (response.success) {
-        const { user, token, permissions } = response.data;
+      // Updated response destructuring to handle nested data structure
+      if (response.success || response.data) {
+        // Handle different response structures
+        const responseData = response.data || response;
+        const { user, token, permissions } = responseData;
         
-        // Store in localStorage
-        localStorage.setItem('auth_token', token);
-        localStorage.setItem('user_data', JSON.stringify(user));
-        localStorage.setItem('login_time', Date.now().toString());
+        // Updated storage keys to match AuthService
+        localStorage.setItem('token', token);
+        localStorage.setItem('user', JSON.stringify(user));
+        localStorage.setItem('loginTime', Date.now().toString());
 
         dispatch({
           type: AUTH_ACTIONS.LOGIN_SUCCESS,
@@ -205,14 +233,15 @@ export const AuthProvider = ({ children }) => {
 
         return { success: true };
       } else {
+        const errorMessage = response.message || 'Login failed';
         dispatch({
           type: AUTH_ACTIONS.LOGIN_FAILURE,
-          payload: response.message || 'Login failed'
+          payload: errorMessage
         });
-        return { success: false, message: response.message };
+        return { success: false, message: errorMessage };
       }
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Login failed. Please try again.';
+      const errorMessage = formatErrorMessage(error);
       dispatch({
         type: AUTH_ACTIONS.LOGIN_FAILURE,
         payload: errorMessage
@@ -241,7 +270,8 @@ export const AuthProvider = ({ children }) => {
   // Token refresh function
   const refreshToken = async () => {
     try {
-      const currentToken = state.token || localStorage.getItem('auth_token');
+      // Updated storage key to match AuthService
+      const currentToken = state.token || localStorage.getItem('token');
       
       if (!currentToken) {
         throw new Error('No token available for refresh');
@@ -249,12 +279,14 @@ export const AuthProvider = ({ children }) => {
 
       const response = await authService.refreshToken(currentToken);
       
-      if (response.success) {
-        const { token, user } = response.data;
+      if (response.success || response.data) {
+        const responseData = response.data || response;
+        const { token, user } = responseData;
         
-        localStorage.setItem('auth_token', token);
+        // Updated storage keys to match AuthService
+        localStorage.setItem('token', token);
         if (user) {
-          localStorage.setItem('user_data', JSON.stringify(user));
+          localStorage.setItem('user', JSON.stringify(user));
         }
 
         dispatch({
@@ -279,9 +311,9 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authService.updateProfile(userData);
       
-      if (response.success) {
-        const updatedUser = response.data;
-        localStorage.setItem('user_data', JSON.stringify(updatedUser));
+      if (response.success || response.data) {
+        const updatedUser = response.data || response;
+        localStorage.setItem('user', JSON.stringify(updatedUser));
         
         dispatch({
           type: AUTH_ACTIONS.UPDATE_USER_PROFILE,
@@ -294,7 +326,8 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (error) {
       console.error('Profile update error:', error);
-      return { success: false, message: 'Failed to update profile' };
+      const errorMessage = formatErrorMessage(error);
+      return { success: false, message: errorMessage };
     }
   };
 
@@ -363,7 +396,8 @@ export const AuthProvider = ({ children }) => {
   const setupSessionTimeout = () => {
     clearSessionTimeout();
     
-    const loginTime = localStorage.getItem('login_time');
+    // Updated storage key to match AuthService
+    const loginTime = localStorage.getItem('loginTime');
     if (!loginTime) return;
 
     const elapsed = Date.now() - parseInt(loginTime);
@@ -409,9 +443,10 @@ export const AuthProvider = ({ children }) => {
 
   // Clear stored authentication data
   const clearStoredAuth = () => {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('user_data');
-    localStorage.removeItem('login_time');
+    // Updated storage keys to match AuthService
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('loginTime');
   };
 
   // Clear error
@@ -421,7 +456,7 @@ export const AuthProvider = ({ children }) => {
 
   // Extend session
   const extendSession = () => {
-    localStorage.setItem('login_time', Date.now().toString());
+    localStorage.setItem('loginTime', Date.now().toString());
     setupSessionTimeout();
     dispatch({
       type: AUTH_ACTIONS.SESSION_TIMEOUT_WARNING,

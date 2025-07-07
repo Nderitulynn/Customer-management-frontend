@@ -55,6 +55,45 @@ class AuthService {
     }
   }
 
+  // Verify token with backend
+  async verifyToken() {
+    try {
+      const token = this.getToken();
+      
+      if (!token) {
+        throw new Error('No token available');
+      }
+
+      // Make API call to verify token with backend
+      const response = await apiMethods.post(API_ENDPOINTS.AUTH.VERIFY_TOKEN, {
+        token
+      });
+
+      // Update user data if provided in response
+      if (response.user) {
+        this.setUser(response.user);
+      }
+
+      return {
+        success: true,
+        valid: true,
+        user: response.user || this.getUser(),
+        token: token
+      };
+    } catch (error) {
+      console.error('Token verification failed:', error);
+      
+      // Clear invalid token
+      this.clearAuthData();
+      
+      return {
+        success: false,
+        valid: false,
+        error: error.message || 'Token verification failed'
+      };
+    }
+  }
+
   // Register new user (admin only)
   async register(userData) {
     try {

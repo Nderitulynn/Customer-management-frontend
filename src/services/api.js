@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // API Base Configuration
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 // Create axios instance with base configuration
 const api = axios.create({
@@ -60,43 +60,31 @@ api.interceptors.response.use(
       const { status, data } = error.response;
       
       // Log error in development
-      if (process.env.NODE_ENV === 'development') {
+      if (import.meta.env.DEV) {
         console.error(`❌ API Error: ${status} ${originalRequest.url}`, data);
       }
 
       switch (status) {
         case 401:
           // Unauthorized - Token expired or invalid
-          if (!originalRequest._retry) {
-            originalRequest._retry = true;
-            
-            try {
-              // Attempt to refresh token
-              const refreshToken = localStorage.getItem('refreshToken');
-              if (refreshToken) {
-                const response = await refreshAuthToken(refreshToken);
-                const newToken = response.data.token;
-                
-                // Update stored token
-                localStorage.setItem('token', newToken);
-                
-                // Retry original request with new token
-                originalRequest.headers.Authorization = `Bearer ${newToken}`;
-                return api(originalRequest);
-              }
-            } catch (refreshError) {
-              console.error('Token refresh failed:', refreshError);
-            }
-          }
-          
-          // Clear tokens and redirect to login
+          // Clear tokens and dispatch logout event
           localStorage.removeItem('token');
           localStorage.removeItem('refreshToken');
           localStorage.removeItem('user');
           
-          // Redirect to login page
+          // Dispatch custom event for AuthContext to handle
+          window.dispatchEvent(new CustomEvent('auth:logout', {
+            detail: { reason: 'token_expired' }
+          }));
+          
+          // Only redirect if not already on login page
           if (window.location.pathname !== '/login') {
-            window.location.href = '/login';
+            // Use a small delay to allow AuthContext to handle the event first
+            setTimeout(() => {
+              if (window.location.pathname !== '/login') {
+                window.location.href = '/login';
+              }
+            }, 100);
           }
           break;
 
@@ -151,24 +139,16 @@ api.interceptors.response.use(
   }
 );
 
-// Token refresh function
-const refreshAuthToken = async (refreshToken) => {
-  try {
-    const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-      refreshToken
-    });
-    return response;
-  } catch (error) {
-    throw error;
-  }
-};
-
-// API helper functions
+// API helper functions to handle your backend's response structure
 export const apiHelpers = {
   // GET request helper
   get: async (url, config = {}) => {
     try {
       const response = await api.get(url, config);
+      // Handle your backend's response structure
+      if (response.data.success && response.data.data) {
+        return { ...response.data.data, ...response.data.token };
+      }
       return response.data;
     } catch (error) {
       throw error;
@@ -179,6 +159,19 @@ export const apiHelpers = {
   post: async (url, data = {}, config = {}) => {
     try {
       const response = await api.post(url, data, config);
+      // Handle your backend's response structure
+      if (response.data.success) {
+        // For auth endpoints, merge data and token
+        if (response.data.data && response.data.token) {
+          return {
+            ...response.data.data,
+            token: response.data.token.accessToken,
+            refreshToken: response.data.token.refreshToken
+          };
+        }
+        // For other endpoints, return data or the whole response
+        return response.data.data || response.data;
+      }
       return response.data;
     } catch (error) {
       throw error;
@@ -189,6 +182,9 @@ export const apiHelpers = {
   put: async (url, data = {}, config = {}) => {
     try {
       const response = await api.put(url, data, config);
+      if (response.data.success && response.data.data) {
+        return response.data.data;
+      }
       return response.data;
     } catch (error) {
       throw error;
@@ -199,6 +195,9 @@ export const apiHelpers = {
   patch: async (url, data = {}, config = {}) => {
     try {
       const response = await api.patch(url, data, config);
+      if (response.data.success && response.data.data) {
+        return response.data.data;
+      }
       return response.data;
     } catch (error) {
       throw error;
@@ -209,6 +208,9 @@ export const apiHelpers = {
   delete: async (url, config = {}) => {
     try {
       const response = await api.delete(url, config);
+      if (response.data.success && response.data.data) {
+        return response.data.data;
+      }
       return response.data;
     } catch (error) {
       throw error;
@@ -260,96 +262,99 @@ export const apiHelpers = {
   }
 };
 
-// API endpoints constants
+// FIXED: API endpoints constants with correct /api prefix
 export const API_ENDPOINTS = {
   // Authentication endpoints
   AUTH: {
-    LOGIN: '/auth/login',
-    LOGOUT: '/auth/logout',
-    REFRESH: '/auth/refresh',
-    FORGOT_PASSWORD: '/auth/forgot-password',
-    RESET_PASSWORD: '/auth/reset-password',
-    VERIFY_EMAIL: '/auth/verify-email',
+    LOGIN: '/api/auth/login',
+    LOGOUT: '/api/auth/logout',
+    REFRESH: '/api/auth/refresh',
+    VERIFY_TOKEN: '/api/auth/verify-token',
+    FORGOT_PASSWORD: '/api/auth/forgot-password',
+    RESET_PASSWORD: '/api/auth/reset-password',
+    VERIFY_EMAIL: '/api/auth/verify-email',
+    REGISTER: '/api/auth/register',
+    CHANGE_PASSWORD: '/api/auth/change-password',
   },
 
   // User management endpoints
   USERS: {
-    BASE: '/users',
-    PROFILE: '/users/profile',
-    UPDATE_PROFILE: '/users/profile',
-    CHANGE_PASSWORD: '/users/change-password',
-    LIST: '/users',
-    CREATE: '/users',
-    UPDATE: (id) => `/users/${id}`,
-    DELETE: (id) => `/users/${id}`,
+    BASE: '/api/users',
+    PROFILE: '/api/users/profile',
+    UPDATE_PROFILE: '/api/users/profile',
+    CHANGE_PASSWORD: '/api/users/change-password',
+    LIST: '/api/users',
+    CREATE: '/api/users',
+    UPDATE: (id) => `/api/users/${id}`,
+    DELETE: (id) => `/api/users/${id}`,
   },
 
   // Customer endpoints
   CUSTOMERS: {
-    BASE: '/customers',
-    LIST: '/customers',
-    CREATE: '/customers',
-    GET: (id) => `/customers/${id}`,
-    UPDATE: (id) => `/customers/${id}`,
-    DELETE: (id) => `/customers/${id}`,
-    SEARCH: '/customers/search',
-    EXPORT: '/customers/export',
+    BASE: '/api/customers',
+    LIST: '/api/customers',
+    CREATE: '/api/customers',
+    GET: (id) => `/api/customers/${id}`,
+    UPDATE: (id) => `/api/customers/${id}`,
+    DELETE: (id) => `/api/customers/${id}`,
+    SEARCH: '/api/customers/search',
+    EXPORT: '/api/customers/export',
   },
 
   // Order endpoints
   ORDERS: {
-    BASE: '/orders',
-    LIST: '/orders',
-    CREATE: '/orders',
-    GET: (id) => `/orders/${id}`,
-    UPDATE: (id) => `/orders/${id}`,
-    DELETE: (id) => `/orders/${id}`,
-    UPDATE_STATUS: (id) => `/orders/${id}/status`,
-    CUSTOMER_ORDERS: (customerId) => `/orders/customer/${customerId}`,
+    BASE: '/api/orders',
+    LIST: '/api/orders',
+    CREATE: '/api/orders',
+    GET: (id) => `/api/orders/${id}`,
+    UPDATE: (id) => `/api/orders/${id}`,
+    DELETE: (id) => `/api/orders/${id}`,
+    UPDATE_STATUS: (id) => `/api/orders/${id}/status`,
+    CUSTOMER_ORDERS: (customerId) => `/api/orders/customer/${customerId}`,
   },
 
   // WhatsApp endpoints
   WHATSAPP: {
-    BASE: '/whatsapp',
-    SEND_MESSAGE: '/whatsapp/send',
-    GET_CHATS: '/whatsapp/chats',
-    GET_CHAT: (id) => `/whatsapp/chats/${id}`,
-    MARK_READ: (id) => `/whatsapp/chats/${id}/read`,
-    TEMPLATES: '/whatsapp/templates',
+    BASE: '/api/whatsapp',
+    SEND_MESSAGE: '/api/whatsapp/send',
+    GET_CHATS: '/api/whatsapp/chats',
+    GET_CHAT: (id) => `/api/whatsapp/chats/${id}`,
+    MARK_READ: (id) => `/api/whatsapp/chats/${id}/read`,
+    TEMPLATES: '/api/whatsapp/templates',
   },
 
   // Notification endpoints
   NOTIFICATIONS: {
-    BASE: '/notifications',
-    LIST: '/notifications',
-    MARK_READ: (id) => `/notifications/${id}/read`,
-    MARK_ALL_READ: '/notifications/mark-all-read',
-    DELETE: (id) => `/notifications/${id}`,
+    BASE: '/api/notifications',
+    LIST: '/api/notifications',
+    MARK_READ: (id) => `/api/notifications/${id}/read`,
+    MARK_ALL_READ: '/api/notifications/mark-all-read',
+    DELETE: (id) => `/api/notifications/${id}`,
   },
 
   // Financial endpoints (Admin only)
   FINANCIAL: {
-    BASE: '/financial',
-    REVENUE: '/financial/revenue',
-    PROFITS: '/financial/profits',
-    COSTS: '/financial/costs',
-    REPORTS: '/financial/reports',
+    BASE: '/api/financial',
+    REVENUE: '/api/financial/revenue',
+    PROFITS: '/api/financial/profits',
+    COSTS: '/api/financial/costs',
+    REPORTS: '/api/financial/reports',
   },
 
   // Analytics endpoints (Admin only)
   ANALYTICS: {
-    BASE: '/analytics',
-    DASHBOARD: '/analytics/dashboard',
-    CUSTOMERS: '/analytics/customers',
-    ORDERS: '/analytics/orders',
-    PERFORMANCE: '/analytics/performance',
+    BASE: '/api/analytics',
+    DASHBOARD: '/api/analytics/dashboard',
+    CUSTOMERS: '/api/analytics/customers',
+    ORDERS: '/api/analytics/orders',
+    PERFORMANCE: '/api/analytics/performance',
   },
 
   // Dashboard endpoints
   DASHBOARD: {
-    ADMIN: '/dashboard/admin',
-    ASSISTANT: '/dashboard/assistant',
-    METRICS: '/dashboard/metrics',
+    ADMIN: '/api/dashboard/admin',
+    ASSISTANT: '/api/dashboard/assistant',
+    METRICS: '/api/dashboard/metrics',
   },
 };
 
