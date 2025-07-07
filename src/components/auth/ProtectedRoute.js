@@ -8,6 +8,7 @@ const ProtectedRoute = ({
   children, 
   allowedRoles = [], 
   requiredPermissions = [],
+  requiredRole = null,
   fallbackPath = '/login',
   showFallback = false,
   fallbackComponent = null 
@@ -33,6 +34,36 @@ const ProtectedRoute = ({
         replace 
       />
     );
+  }
+
+  // Handle role-based dashboard routing with admin cross-access
+  if (requiredRole) {
+    // Admin can access any dashboard (cross-role access)
+    if (user?.role === 'admin') {
+      return children;
+    }
+    
+    // Assistant can only access their own dashboard
+    if (user?.role !== requiredRole) {
+      // Redirect to appropriate dashboard based on user role
+      const userDashboard = user?.role === 'admin' ? '/admin-dashboard' : '/assistant-dashboard';
+      return (
+        <Navigate 
+          to={userDashboard} 
+          state={{ from: location.pathname }} 
+          replace 
+        />
+      );
+    }
+  }
+
+  // Handle legacy dashboard routing - smart redirect based on user role
+  if (location.pathname === '/dashboard' || location.pathname === '/') {
+    if (user?.role === 'admin') {
+      return <Navigate to="/admin-dashboard" replace />;
+    } else if (user?.role === 'assistant') {
+      return <Navigate to="/assistant-dashboard" replace />;
+    }
   }
 
   // Check role-based access - FIXED: Use hasAnyRole instead of hasRole
@@ -86,7 +117,13 @@ export const withProtectedRoute = (
 
 // Specific route protectors for common use cases
 export const AdminOnlyRoute = ({ children }) => (
-  <ProtectedRoute allowedRoles={['admin']}>
+  <ProtectedRoute requiredRole="admin">
+    {children}
+  </ProtectedRoute>
+);
+
+export const AssistantOnlyRoute = ({ children }) => (
+  <ProtectedRoute requiredRole="assistant">
     {children}
   </ProtectedRoute>
 );
