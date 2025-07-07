@@ -14,7 +14,7 @@ const Login = () => { // Removed onLogin prop
   const [errors, setErrors] = useState({});
 
   // ADD THESE HOOKS
-  const { login, error: authError, clearError } = useAuth();
+  const { login, error: authError, clearError, user } = useAuth();
   const navigate = useNavigate();
 
   const validateForm = () => {
@@ -52,8 +52,16 @@ const Login = () => { // Removed onLogin prop
       });
       
       if (result.success) {
-        // Navigate to dashboard on successful login
-        navigate('/dashboard');
+        // Role-based navigation to appropriate dashboard
+        const userRole = result.user?.role || user?.role;
+        if (userRole === 'admin') {
+          navigate('/admin-dashboard');
+        } else if (userRole === 'assistant') {
+          navigate('/assistant-dashboard');
+        } else {
+          // Fallback to legacy dashboard
+          navigate('/dashboard');
+        }
       }
     } catch (error) {
       console.error('Login error:', error);
