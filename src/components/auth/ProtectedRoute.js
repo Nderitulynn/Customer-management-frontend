@@ -1,6 +1,6 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import AuthContext, { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { checkPermission, hasAnyRole } from '../../utils/permissions';
 import LoadingSpinner from '../common/LoadingSpinner';
 
@@ -57,16 +57,10 @@ const ProtectedRoute = ({
     }
   }
 
-  // Handle legacy dashboard routing - smart redirect based on user role
-  if (location.pathname === '/dashboard' || location.pathname === '/') {
-    if (user?.role === 'admin') {
-      return <Navigate to="/admin-dashboard" replace />;
-    } else if (user?.role === 'assistant') {
-      return <Navigate to="/assistant-dashboard" replace />;
-    }
-  }
+  // REMOVED: Legacy dashboard routing logic since you only want role-specific dashboards
+  // This was causing conflicts with your direct role-based navigation approach
 
-  // Check role-based access - FIXED: Use hasAnyRole instead of hasRole
+  // Check role-based access
   if (allowedRoles.length > 0 && !hasAnyRole(user, allowedRoles)) {
     if (showFallback && fallbackComponent) {
       return fallbackComponent;

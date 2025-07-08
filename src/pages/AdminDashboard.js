@@ -16,26 +16,34 @@ import {
   Search,
   Filter,
   Download,
-  Bell
+  Bell,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import LoadingSpinner from '../components/common/LoadingSpinner';
+import AssistantRegistrationModal from '../components/modals/AssistantRegistrationModal';
+import { getAllAssistants, deleteAssistant, toggleAssistantStatus } from '../services/assistantService';
 
 const AdminDashboard = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [assistantsLoading, setAssistantsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
+  const [showAssistantModal, setShowAssistantModal] = useState(false);
+  const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState('');
 
-  // Sample data - replace with actual API calls
+  // Dashboard data state
   const [dashboardData, setDashboardData] = useState({
     stats: {
       totalCustomers: 156,
       activeChats: 23,
       monthlyRevenue: 8450,
       todayOrders: 12,
-      totalAssistants: 3,
+      totalAssistants: 0, // Will be updated from API
       responseRate: 94
     },
     recentOrders: [
@@ -45,11 +53,7 @@ const AdminDashboard = () => {
       { id: 4, customer: 'John Smith', item: 'Boho Curtain', amount: 200, status: 'Processing', date: '2024-01-14' },
       { id: 5, customer: 'Lisa Wilson', item: 'Keychain Set', amount: 35, status: 'Shipped', date: '2024-01-13' }
     ],
-    assistants: [
-      { id: 1, name: 'Anna Martinez', role: 'Assistant', status: 'Active', lastActive: '2024-01-15 10:30', orders: 45 },
-      { id: 2, name: 'David Kim', role: 'Assistant', status: 'Active', lastActive: '2024-01-15 09:15', orders: 38 },
-      { id: 3, name: 'Rachel Brown', role: 'Assistant', status: 'Inactive', lastActive: '2024-01-14 16:45', orders: 52 }
-    ],
+    assistants: [], // Will be populated from API
     recentCustomers: [
       { id: 1, name: 'Sarah Johnson', phone: '+1234567890', lastOrder: '2024-01-15', totalOrders: 3, totalSpent: 340 },
       { id: 2, name: 'Mike Chen', phone: '+1234567891', lastOrder: '2024-01-15', totalOrders: 1, totalSpent: 120 },
@@ -59,12 +63,97 @@ const AdminDashboard = () => {
     ]
   });
 
+  // Fetch assistants from API
+  const fetchAssistants = async () => {
+    try {
+      setAssistantsLoading(true);
+      setError(null);
+      const assistants = await getAllAssistants();
+      
+      setDashboardData(prev => ({
+        ...prev,
+        assistants: assistants,
+        stats: {
+          ...prev.stats,
+          totalAssistants: assistants.length
+        }
+      }));
+    } catch (err) {
+      setError('Failed to fetch assistants. Please try again.');
+      console.error('Error fetching assistants:', err);
+    } finally {
+      setAssistantsLoading(false);
+    }
+  };
+
+  // Handle assistant status toggle
+  const handleToggleAssistantStatus = async (assistantId) => {
+    try {
+      await toggleAssistantStatus(assistantId);
+      setSuccessMessage('Assistant status updated successfully');
+      fetchAssistants(); // Refresh the list
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      setError('Failed to update assistant status');
+      console.error('Error toggling assistant status:', err);
+    }
+  };
+
+  // Handle assistant deletion
+  const handleDeleteAssistant = async (assistantId) => {
+    if (!window.confirm('Are you sure you want to delete this assistant?')) {
+      return;
+    }
+
+    try {
+      await deleteAssistant(assistantId);
+      setSuccessMessage('Assistant deleted successfully');
+      fetchAssistants(); // Refresh the list
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      setError('Failed to delete assistant');
+      console.error('Error deleting assistant:', err);
+    }
+  };
+
+  // Handle successful assistant creation
+  const handleAssistantCreated = (result) => {
+    setSuccessMessage(`Assistant ${result.user.firstName} ${result.user.lastName} created successfully!`);
+    setShowAssistantModal(false);
+    fetchAssistants(); // Refresh the list
+    
+    // Clear success message after 5 seconds
+    setTimeout(() => setSuccessMessage(''), 5000);
+  };
+
+  // Handle assistant creation error
+  const handleAssistantCreationError = (error) => {
+    setError('Failed to create assistant. Please try again.');
+    console.error('Assistant creation error:', error);
+  };
+
+  // Initial data fetch
   useEffect(() => {
-    // Simulate API call
-    setTimeout(() => {
+    const initializeDashboard = async () => {
+      setLoading(true);
+      await fetchAssistants();
       setLoading(false);
-    }, 1000);
+    };
+
+    initializeDashboard();
   }, []);
+
+  // Clear error message after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   const StatCard = ({ title, value, icon: Icon, color, change }) => (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -99,7 +188,7 @@ const AdminDashboard = () => {
   );
 
   const getStatusColor = (status) => {
-    switch (status.toLowerCase()) {
+    switch (status?.toLowerCase()) {
       case 'processing': return 'bg-yellow-100 text-yellow-800';
       case 'shipped': return 'bg-blue-100 text-blue-800';
       case 'delivered': return 'bg-green-100 text-green-800';
@@ -108,6 +197,47 @@ const AdminDashboard = () => {
       default: return 'bg-gray-100 text-gray-800';
     }
   };
+
+  // Assistant card component with loading state
+  const AssistantCard = ({ assistant, onToggleStatus, onDelete }) => (
+    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+      <div className="flex items-center space-x-3">
+        <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center">
+          <span className="text-white text-sm font-medium">
+            {assistant.initials || assistant.firstName?.charAt(0) || 'A'}
+          </span>
+        </div>
+        <div>
+          <p className="font-medium text-gray-900">
+            {assistant.fullName || `${assistant.firstName} ${assistant.lastName}`}
+          </p>
+          <p className="text-sm text-gray-600">{assistant.email}</p>
+          <p className="text-xs text-gray-500">
+            Last active: {assistant.lastActive || 'Never'}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center space-x-2">
+        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(assistant.status)}`}>
+          {assistant.status}
+        </span>
+        <button
+          onClick={() => onToggleStatus(assistant.id)}
+          className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+          title={assistant.status === 'active' ? 'Deactivate' : 'Activate'}
+        >
+          <Edit className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => onDelete(assistant.id)}
+          className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+          title="Delete assistant"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -145,6 +275,45 @@ const AdminDashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* Success/Error Messages */}
+      {successMessage && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <CheckCircle className="h-5 w-5 text-green-400" />
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-green-800">{successMessage}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <AlertCircle className="h-5 w-5 text-red-400" />
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-red-800">{error}</p>
+              </div>
+              <div className="ml-auto">
+                <button
+                  onClick={() => setError(null)}
+                  className="text-red-400 hover:text-red-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -261,38 +430,47 @@ const AdminDashboard = () => {
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900">Assistant Management</h3>
-                <button className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
-                  Add Assistant
-                </button>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={fetchAssistants}
+                    className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                    title="Refresh assistants"
+                    disabled={assistantsLoading}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${assistantsLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                  <button
+                    onClick={() => setShowAssistantModal(true)}
+                    className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Add Assistant
+                  </button>
+                </div>
               </div>
             </div>
             <div className="p-6">
-              <div className="space-y-4">
-                {dashboardData.assistants.map((assistant) => (
-                  <div key={assistant.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center">
-                        <span className="text-white text-sm font-medium">
-                          {assistant.name.charAt(0)}
-                        </span>
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-900">{assistant.name}</p>
-                        <p className="text-sm text-gray-600">{assistant.orders} orders handled</p>
-                        <p className="text-xs text-gray-500">Last active: {assistant.lastActive}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(assistant.status)}`}>
-                        {assistant.status}
-                      </span>
-                      <button className="p-1 text-gray-400 hover:text-gray-600">
-                        <Edit className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              {assistantsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <LoadingSpinner size="medium" message="Loading assistants..." />
+                </div>
+              ) : dashboardData.assistants.length === 0 ? (
+                <div className="text-center py-8">
+                  <UserPlus className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500 text-sm">No assistants found</p>
+                  <p className="text-gray-400 text-xs">Click "Add Assistant" to create your first assistant</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {dashboardData.assistants.map((assistant) => (
+                    <AssistantCard
+                      key={assistant.id}
+                      assistant={assistant}
+                      onToggleStatus={handleToggleAssistantStatus}
+                      onDelete={handleDeleteAssistant}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -396,6 +574,14 @@ const AdminDashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* Assistant Registration Modal */}
+      <AssistantRegistrationModal
+        isOpen={showAssistantModal}
+        onClose={() => setShowAssistantModal(false)}
+        onSuccess={handleAssistantCreated}
+        onError={handleAssistantCreationError}
+      />
     </div>
   );
 };

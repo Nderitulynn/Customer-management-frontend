@@ -208,20 +208,18 @@ export const AuthProvider = ({ children }) => {
     return 'An unexpected error occurred. Please try again.';
   };
 
-  // Login function
+  // Login function - FIXED
   const login = async (credentials) => {
     try {
       dispatch({ type: AUTH_ACTIONS.LOGIN_START });
 
       const response = await authService.login(credentials);
       
-      // Updated response destructuring to handle nested data structure
-      if (response.success || response.data) {
-        // Handle different response structures
-        const responseData = response.data || response;
-        const { user, token, permissions } = responseData;
+      // FIX: Extract data directly from response (not nested under .data)
+      if (response.success) {
+        const { user, token, permissions } = response;
         
-        // Updated storage keys to match AuthService
+        // Store authentication data
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(user));
         localStorage.setItem('loginTime', Date.now().toString());
@@ -279,9 +277,8 @@ export const AuthProvider = ({ children }) => {
 
       const response = await authService.refreshToken(currentToken);
       
-      if (response.success || response.data) {
-        const responseData = response.data || response;
-        const { token, user } = responseData;
+      if (response.success) {
+        const { token, user } = response;
         
         // Updated storage keys to match AuthService
         localStorage.setItem('token', token);
@@ -311,8 +308,8 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authService.updateProfile(userData);
       
-      if (response.success || response.data) {
-        const updatedUser = response.data || response;
+      if (response.success) {
+        const updatedUser = response.user || response;
         localStorage.setItem('user', JSON.stringify(updatedUser));
         
         dispatch({

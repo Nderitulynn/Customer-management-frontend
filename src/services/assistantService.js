@@ -1,4 +1,4 @@
-import { apiHelpers as api, API_ENDPOINTS, handleApiError } from './apiService';
+import { apiHelpers as api, API_ENDPOINTS, handleApiError } from './api';
 
 // Assistant Service - Handles all assistant-related API operations
 export class AssistantService {
