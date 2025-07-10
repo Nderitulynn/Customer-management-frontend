@@ -18,7 +18,9 @@ import {
   Download,
   Bell,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  X, // <- ADDED THIS MISSING IMPORT
+  CheckCircle // <- ADDED THIS MISSING IMPORT
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import LoadingSpinner from '../components/common/LoadingSpinner';

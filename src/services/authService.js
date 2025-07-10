@@ -16,150 +16,71 @@ class AuthService {
       const response = await apiMethods.post(API_ENDPOINTS.AUTH.LOGIN, {
         email: email.toLowerCase().trim(),
         password,
-        rememberMe,
+        rememberMe
       });
 
-      const { user, token, refreshToken, permissions, expiresIn } = response;
+      // FIX: Handle nested data structure from backend
+      // Backend returns: { success: true, data: { user, token } }
+      // Frontend needs: { user, token }
+      const { user, token, refreshToken, permissions, expiresIn } = response.data || response;
+
+      if (!token || !user) {
+        throw new Error('Login failed: Missing token or user data');
+      }
 
       // Store authentication data
-      this.setAuthData({
+      this.setToken(token);
+      this.setUser(user);
+      
+      if (refreshToken) {
+        this.setRefreshToken(refreshToken);
+      }
+
+      // Store remember me preference
+      if (rememberMe) {
+        localStorage.setItem(this.rememberMeKey, 'true');
+      } else {
+        localStorage.removeItem(this.rememberMeKey);
+      }
+
+      // Store login time for session management
+      localStorage.setItem('loginTime', new Date().toISOString());
+
+      return {
+        success: true,
         user,
         token,
         refreshToken,
         permissions,
-        expiresIn,
-        rememberMe,
-      });
-
-      // Track login
-      this.trackLogin(user);
-
-      return {
-        success: true,
-        user,
-        token,
-        permissions,
-        message: 'Login successful',
+        expiresIn
       };
+
     } catch (error) {
-      console.error('Login failed:', error);
+      console.error('Login error:', error);
       
-      // Clear any existing auth data
+      // Clear any existing auth data on login failure
       this.clearAuthData();
       
-      throw {
-        success: false,
-        message: error.message || 'Login failed',
-        type: error.type || 'AUTH_ERROR',
-      };
-    }
-  }
-
-  // Verify token with backend
-  async verifyToken() {
-    try {
-      const token = this.getToken();
-      
-      if (!token) {
-        throw new Error('No token available');
-      }
-
-      // Make API call to verify token with backend
-      const response = await apiMethods.post(API_ENDPOINTS.AUTH.VERIFY_TOKEN, {
-        token
-      });
-
-      // Update user data if provided in response
-      if (response.user) {
-        this.setUser(response.user);
-      }
-
-      return {
-        success: true,
-        valid: true,
-        user: response.user || this.getUser(),
-        token: token
-      };
-    } catch (error) {
-      console.error('Token verification failed:', error);
-      
-      // Clear invalid token
-      this.clearAuthData();
-      
-      return {
-        success: false,
-        valid: false,
-        error: error.message || 'Token verification failed'
-      };
-    }
-  }
-
-  // Register new user (admin only)
-  async register(userData) {
-    try {
-      const response = await apiMethods.post(API_ENDPOINTS.AUTH.REGISTER, {
-        ...userData,
-        email: userData.email.toLowerCase().trim(),
-      });
-
-      return {
-        success: true,
-        user: response.user,
-        message: 'User registered successfully',
-      };
-    } catch (error) {
-      console.error('Registration failed:', error);
-      
-      throw {
-        success: false,
-        message: error.message || 'Registration failed',
-        type: error.type || 'REGISTRATION_ERROR',
-      };
+      throw new Error(error.message || 'Login failed');
     }
   }
 
   // Logout user
-  async logout(force = false) {
+  async logout() {
     try {
-      const token = this.getToken();
-      const refreshToken = this.getRefreshToken();
-
-      // Call server logout if tokens exist and not forced
-      if (!force && (token || refreshToken)) {
-        try {
-          await apiMethods.post(API_ENDPOINTS.AUTH.LOGOUT, {
-            token,
-            refreshToken,
-          });
-        } catch (error) {
-          console.warn('Server logout failed:', error);
-        }
+      // Call logout endpoint if available
+      if (this.getToken()) {
+        await apiMethods.post(API_ENDPOINTS.AUTH.LOGOUT);
       }
-
-      // Clear local authentication data
-      this.clearAuthData();
-
-      // Track logout
-      this.trackLogout();
-
-      return {
-        success: true,
-        message: 'Logout successful',
-      };
     } catch (error) {
-      console.error('Logout error:', error);
-      
-      // Force clear data even if server call fails
+      console.error('Logout API error:', error);
+    } finally {
+      // Always clear local auth data
       this.clearAuthData();
-      
-      return {
-        success: true,
-        message: 'Logout completed',
-      };
     }
   }
 
-  // Refresh authentication token
+  // Refresh token
   async refreshToken() {
     try {
       const refreshToken = this.getRefreshToken();
@@ -169,42 +90,181 @@ class AuthService {
       }
 
       const response = await apiMethods.post(API_ENDPOINTS.AUTH.REFRESH, {
-        refreshToken,
+        refreshToken
       });
 
-      const { token: newToken, refreshToken: newRefreshToken, user, expiresIn } = response;
+      const { token, refreshToken: newRefreshToken } = response.data || response;
 
-      // Update stored tokens
-      this.setToken(newToken);
-      if (newRefreshToken) {
-        this.setRefreshToken(newRefreshToken);
-      }
-      if (user) {
-        this.setUser(user);
-      }
-
-      // Update expiration
-      if (expiresIn) {
-        this.setTokenExpiration(expiresIn);
+      if (token) {
+        this.setToken(token);
+        if (newRefreshToken) {
+          this.setRefreshToken(newRefreshToken);
+        }
+        return token;
       }
 
-      return {
-        success: true,
-        token: newToken,
-        refreshToken: newRefreshToken,
-        user,
-      };
+      throw new Error('Token refresh failed');
     } catch (error) {
-      console.error('Token refresh failed:', error);
-      
-      // Clear tokens if refresh fails
+      console.error('Token refresh error:', error);
       this.clearAuthData();
+      throw error;
+    }
+  }
+
+  // Get current token
+  getToken() {
+    return localStorage.getItem(this.tokenKey);
+  }
+
+  // Set token
+  setToken(token) {
+    if (token) {
+      localStorage.setItem(this.tokenKey, token);
+    } else {
+      localStorage.removeItem(this.tokenKey);
+    }
+  }
+
+  // Get refresh token
+  getRefreshToken() {
+    return localStorage.getItem(this.refreshTokenKey);
+  }
+
+  // Set refresh token
+  setRefreshToken(refreshToken) {
+    if (refreshToken) {
+      localStorage.setItem(this.refreshTokenKey, refreshToken);
+    } else {
+      localStorage.removeItem(this.refreshTokenKey);
+    }
+  }
+
+  // Get current user
+  getUser() {
+    const userJson = localStorage.getItem(this.userKey);
+    return userJson ? JSON.parse(userJson) : null;
+  }
+
+  // Set user
+  setUser(user) {
+    if (user) {
+      localStorage.setItem(this.userKey, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(this.userKey);
+    }
+  }
+
+  // Check if user is authenticated
+  isAuthenticated() {
+    const token = this.getToken();
+    const user = this.getUser();
+    return !!(token && user);
+  }
+
+  // Check if user has specific role
+  hasRole(role) {
+    const user = this.getUser();
+    return user && user.roles && user.roles.includes(role);
+  }
+
+  // Check if user has specific permission
+  hasPermission(permission) {
+    const user = this.getUser();
+    return user && user.permissions && user.permissions.includes(permission);
+  }
+
+  // Check if user is admin
+  isAdmin() {
+    return this.hasRole('admin') || this.hasRole('administrator');
+  }
+
+  // Get remember me preference
+  getRememberMe() {
+    return localStorage.getItem(this.rememberMeKey) === 'true';
+  }
+
+  // Clear all authentication data
+  clearAuthData() {
+    localStorage.removeItem(this.tokenKey);
+    localStorage.removeItem(this.refreshTokenKey);
+    localStorage.removeItem(this.userKey);
+    localStorage.removeItem(this.rememberMeKey);
+    localStorage.removeItem('loginTime');
+  }
+
+  // Check if token is expired (if JWT)
+  isTokenExpired() {
+    const token = this.getToken();
+    if (!token) return true;
+
+    try {
+      // Decode JWT token to check expiration
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const currentTime = Date.now() / 1000;
+      return payload.exp < currentTime;
+    } catch (error) {
+      console.error('Error checking token expiration:', error);
+      return true;
+    }
+  }
+
+  // Get authorization header for API requests
+  getAuthHeader() {
+    const token = this.getToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  // Initialize auth state (call on app startup)
+  async initializeAuth() {
+    try {
+      // Check if we have a token
+      if (!this.isAuthenticated()) {
+        return { authenticated: false };
+      }
+
+      // Check if token is expired
+      if (this.isTokenExpired()) {
+        // Try to refresh token
+        try {
+          await this.refreshToken();
+          return { authenticated: true, user: this.getUser() };
+        } catch (error) {
+          // Refresh failed, clear auth data
+          this.clearAuthData();
+          return { authenticated: false };
+        }
+      }
+
+      // Token is valid
+      return { authenticated: true, user: this.getUser() };
+    } catch (error) {
+      console.error('Auth initialization error:', error);
+      this.clearAuthData();
+      return { authenticated: false };
+    }
+  }
+
+  // Register new user
+  async register(userData) {
+    try {
+      const response = await apiMethods.post(API_ENDPOINTS.AUTH.REGISTER, userData);
       
-      throw {
-        success: false,
-        message: error.message || 'Token refresh failed',
-        type: 'TOKEN_REFRESH_ERROR',
-      };
+      // Handle nested data structure similar to login
+      const { user, token, refreshToken } = response.data || response;
+
+      if (token && user) {
+        this.setToken(token);
+        this.setUser(user);
+        if (refreshToken) {
+          this.setRefreshToken(refreshToken);
+        }
+        localStorage.setItem('loginTime', new Date().toISOString());
+      }
+
+      return response;
+    } catch (error) {
+      console.error('Registration error:', error);
+      throw error;
     }
   }
 
@@ -212,79 +272,40 @@ class AuthService {
   async forgotPassword(email) {
     try {
       const response = await apiMethods.post(API_ENDPOINTS.AUTH.FORGOT_PASSWORD, {
-        email: email.toLowerCase().trim(),
+        email: email.toLowerCase().trim()
       });
-
-      return {
-        success: true,
-        message: response.message || 'Password reset email sent',
-      };
+      return response;
     } catch (error) {
-      console.error('Forgot password failed:', error);
-      
-      throw {
-        success: false,
-        message: error.message || 'Failed to send password reset email',
-        type: 'FORGOT_PASSWORD_ERROR',
-      };
+      console.error('Forgot password error:', error);
+      throw error;
     }
   }
 
   // Reset password
-  async resetPassword(resetData) {
+  async resetPassword(token, password) {
     try {
-      const { token, password, confirmPassword } = resetData;
-
-      if (password !== confirmPassword) {
-        throw new Error('Passwords do not match');
-      }
-
       const response = await apiMethods.post(API_ENDPOINTS.AUTH.RESET_PASSWORD, {
         token,
-        password,
+        password
       });
-
-      return {
-        success: true,
-        message: response.message || 'Password reset successful',
-      };
+      return response;
     } catch (error) {
-      console.error('Password reset failed:', error);
-      
-      throw {
-        success: false,
-        message: error.message || 'Password reset failed',
-        type: 'PASSWORD_RESET_ERROR',
-      };
+      console.error('Reset password error:', error);
+      throw error;
     }
   }
 
   // Change password
-  async changePassword(passwordData) {
+  async changePassword(currentPassword, newPassword) {
     try {
-      const { currentPassword, newPassword, confirmPassword } = passwordData;
-
-      if (newPassword !== confirmPassword) {
-        throw new Error('New passwords do not match');
-      }
-
       const response = await apiMethods.post(API_ENDPOINTS.AUTH.CHANGE_PASSWORD, {
         currentPassword,
-        newPassword,
+        newPassword
       });
-
-      return {
-        success: true,
-        message: response.message || 'Password changed successfully',
-      };
+      return response;
     } catch (error) {
-      console.error('Password change failed:', error);
-      
-      throw {
-        success: false,
-        message: error.message || 'Password change failed',
-        type: 'PASSWORD_CHANGE_ERROR',
-      };
+      console.error('Change password error:', error);
+      throw error;
     }
   }
 
@@ -292,327 +313,16 @@ class AuthService {
   async verifyEmail(token) {
     try {
       const response = await apiMethods.post(API_ENDPOINTS.AUTH.VERIFY_EMAIL, {
-        token,
+        token
       });
-
-      return {
-        success: true,
-        message: response.message || 'Email verified successfully',
-      };
+      return response;
     } catch (error) {
-      console.error('Email verification failed:', error);
-      
-      throw {
-        success: false,
-        message: error.message || 'Email verification failed',
-        type: 'EMAIL_VERIFICATION_ERROR',
-      };
-    }
-  }
-
-  // Token management methods
-  setAuthData({ user, token, refreshToken, permissions, expiresIn, rememberMe }) {
-    try {
-      // Store tokens
-      if (token) this.setToken(token);
-      if (refreshToken) this.setRefreshToken(refreshToken);
-      
-      // Store user data
-      if (user) {
-        const userData = {
-          ...user,
-          permissions: permissions || user.permissions || [],
-          loginTime: new Date().toISOString(),
-        };
-        this.setUser(userData);
-      }
-      
-      // Store expiration
-      if (expiresIn) {
-        this.setTokenExpiration(expiresIn);
-      }
-      
-      // Store remember me preference
-      if (rememberMe !== undefined) {
-        localStorage.setItem(this.rememberMeKey, JSON.stringify(rememberMe));
-      }
-    } catch (error) {
-      console.error('Failed to set auth data:', error);
-    }
-  }
-
-  clearAuthData() {
-    try {
-      localStorage.removeItem(this.tokenKey);
-      localStorage.removeItem(this.refreshTokenKey);
-      localStorage.removeItem(this.userKey);
-      localStorage.removeItem(this.rememberMeKey);
-      localStorage.removeItem('tokenExpiration');
-      
-      // Clear session storage
-      sessionStorage.removeItem(this.tokenKey);
-      sessionStorage.removeItem(this.userKey);
-    } catch (error) {
-      console.error('Failed to clear auth data:', error);
-    }
-  }
-
-  setToken(token) {
-    localStorage.setItem(this.tokenKey, token);
-  }
-
-  getToken() {
-    return localStorage.getItem(this.tokenKey);
-  }
-
-  setRefreshToken(refreshToken) {
-    localStorage.setItem(this.refreshTokenKey, refreshToken);
-  }
-
-  getRefreshToken() {
-    return localStorage.getItem(this.refreshTokenKey);
-  }
-
-  setUser(user) {
-    localStorage.setItem(this.userKey, JSON.stringify(user));
-  }
-
-  getUser() {
-    try {
-      const userData = localStorage.getItem(this.userKey);
-      return userData ? JSON.parse(userData) : null;
-    } catch (error) {
-      console.error('Failed to parse user data:', error);
-      return null;
-    }
-  }
-
-  setTokenExpiration(expiresIn) {
-    const expirationTime = new Date().getTime() + (expiresIn * 1000);
-    localStorage.setItem('tokenExpiration', expirationTime.toString());
-  }
-
-  getTokenExpiration() {
-    const expiration = localStorage.getItem('tokenExpiration');
-    return expiration ? parseInt(expiration, 10) : null;
-  }
-
-  // Authentication state checks
-  isAuthenticated() {
-    const token = this.getToken();
-    const user = this.getUser();
-    
-    if (!token || !user) {
-      return false;
-    }
-
-    // Check token expiration
-    if (this.isTokenExpired()) {
-      return false;
-    }
-
-    return true;
-  }
-
-  isTokenExpired() {
-    const expiration = this.getTokenExpiration();
-    
-    if (!expiration) {
-      return false; // No expiration set, assume valid
-    }
-
-    const currentTime = new Date().getTime();
-    const bufferTime = 5 * 60 * 1000; // 5 minutes buffer
-    
-    return currentTime >= (expiration - bufferTime);
-  }
-
-  isTokenExpiringSoon(minutes = 5) {
-    const expiration = this.getTokenExpiration();
-    
-    if (!expiration) {
-      return false;
-    }
-
-    const currentTime = new Date().getTime();
-    const warningTime = minutes * 60 * 1000;
-    
-    return currentTime >= (expiration - warningTime);
-  }
-
-  shouldRememberUser() {
-    try {
-      const rememberMe = localStorage.getItem(this.rememberMeKey);
-      return rememberMe === 'true';
-    } catch (error) {
-      return false;
-    }
-  }
-
-  // Role and permission checks
-  hasRole(role) {
-    const user = this.getUser();
-    return user?.role === role;
-  }
-
-  isAdmin() {
-    return this.hasRole('admin');
-  }
-
-  isAssistant() {
-    return this.hasRole('assistant');
-  }
-
-  hasPermission(permission) {
-    const user = this.getUser();
-    const permissions = user?.permissions || [];
-    
-    if (Array.isArray(permissions)) {
-      return permissions.includes(permission);
-    }
-    
-    // Handle object-based permissions
-    if (typeof permissions === 'object') {
-      const [category, action] = permission.split('.');
-      return permissions[category]?.[action] === true;
-    }
-    
-    return false;
-  }
-
-  hasAnyPermission(permissionsList) {
-    return permissionsList.some(permission => this.hasPermission(permission));
-  }
-
-  hasAllPermissions(permissionsList) {
-    return permissionsList.every(permission => this.hasPermission(permission));
-  }
-
-  // User info utilities
-  getCurrentUser() {
-    return this.getUser();
-  }
-
-  getCurrentUserId() {
-    const user = this.getUser();
-    return user?.id || user?._id;
-  }
-
-  getCurrentUserRole() {
-    const user = this.getUser();
-    return user?.role;
-  }
-
-  getCurrentUserName() {
-    const user = this.getUser();
-    return user?.name || user?.email || 'User';
-  }
-
-  // Session management
-  extendSession() {
-    const user = this.getUser();
-    if (user) {
-      // Update last activity
-      const updatedUser = {
-        ...user,
-        lastActivity: new Date().toISOString(),
-      };
-      this.setUser(updatedUser);
-    }
-  }
-
-  getSessionDuration() {
-    const user = this.getUser();
-    if (!user?.loginTime) return 0;
-    
-    const loginTime = new Date(user.loginTime).getTime();
-    const currentTime = new Date().getTime();
-    
-    return currentTime - loginTime;
-  }
-
-  // Activity tracking
-  trackLogin(user) {
-    try {
-      // Track login analytics
-      const loginData = {
-        userId: user.id,
-        timestamp: new Date().toISOString(),
-        userAgent: navigator.userAgent,
-        platform: navigator.platform,
-      };
-      
-      // Store in session for analytics
-      sessionStorage.setItem('lastLogin', JSON.stringify(loginData));
-    } catch (error) {
-      console.error('Failed to track login:', error);
-    }
-  }
-
-  trackLogout() {
-    try {
-      // Track logout analytics
-      const logoutData = {
-        timestamp: new Date().toISOString(),
-        sessionDuration: this.getSessionDuration(),
-      };
-      
-      // Store briefly for analytics
-      sessionStorage.setItem('lastLogout', JSON.stringify(logoutData));
-    } catch (error) {
-      console.error('Failed to track logout:', error);
-    }
-  }
-
-  // Token validation
-  async validateToken() {
-    try {
-      const token = this.getToken();
-      
-      if (!token) {
-        throw new Error('No token available');
-      }
-
-      // Simple validation - try to decode JWT
-      const payload = this.decodeJWT(token);
-      
-      if (!payload || payload.exp * 1000 < Date.now()) {
-        throw new Error('Token expired');
-      }
-
-      return {
-        valid: true,
-        payload,
-      };
-    } catch (error) {
-      return {
-        valid: false,
-        error: error.message,
-      };
-    }
-  }
-
-  // JWT utilities
-  decodeJWT(token) {
-    try {
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(
-        atob(base64)
-          .split('')
-          .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-          .join('')
-      );
-      
-      return JSON.parse(jsonPayload);
-    } catch (error) {
-      console.error('Failed to decode JWT:', error);
-      return null;
+      console.error('Email verification error:', error);
+      throw error;
     }
   }
 }
 
 // Create and export singleton instance
 const authService = new AuthService();
-export { authService };
 export default authService;
