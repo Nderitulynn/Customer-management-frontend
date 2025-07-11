@@ -111,6 +111,62 @@ class AuthService {
     }
   }
 
+  // Verify token - NEW METHOD ADDED
+  async verifyToken(token = null) {
+    try {
+      // Use provided token or get from storage
+      const tokenToVerify = token || this.getToken();
+      
+      if (!tokenToVerify) {
+        return {
+          success: false,
+          error: 'No token provided'
+        };
+      }
+
+      // Check if token is expired locally first (for JWT tokens)
+      if (this.isTokenExpired()) {
+        return {
+          success: false,
+          error: 'Token expired'
+        };
+      }
+
+      // Verify token with backend
+      const response = await apiMethods.get(API_ENDPOINTS.AUTH.VERIFY, {
+        headers: {
+          'Authorization': `Bearer ${tokenToVerify}`
+        }
+      });
+
+      // Handle response data structure
+      const { user, valid } = response.data || response;
+
+      if (valid !== false && user) {
+        // Update user data if provided
+        this.setUser(user);
+        
+        return {
+          success: true,
+          user,
+          valid: true
+        };
+      }
+
+      return {
+        success: false,
+        error: 'Invalid token'
+      };
+
+    } catch (error) {
+      console.error('Token verification failed:', error);
+      return {
+        success: false,
+        error: error.message || 'Token verification failed'
+      };
+    }
+  }
+
   // Get current token
   getToken() {
     return localStorage.getItem(this.tokenKey);
@@ -222,9 +278,15 @@ class AuthService {
         return { authenticated: false };
       }
 
-      // Check if token is expired
-      if (this.isTokenExpired()) {
-        // Try to refresh token
+      // Verify token with backend
+      const verificationResult = await this.verifyToken();
+      
+      if (verificationResult.success) {
+        return { authenticated: true, user: this.getUser() };
+      }
+
+      // Token verification failed, try to refresh
+      if (this.getRefreshToken()) {
         try {
           await this.refreshToken();
           return { authenticated: true, user: this.getUser() };
@@ -235,8 +297,10 @@ class AuthService {
         }
       }
 
-      // Token is valid
-      return { authenticated: true, user: this.getUser() };
+      // No refresh token available, clear auth data
+      this.clearAuthData();
+      return { authenticated: false };
+
     } catch (error) {
       console.error('Auth initialization error:', error);
       this.clearAuthData();
@@ -322,7 +386,6 @@ class AuthService {
     }
   }
 }
-
 // Create and export singleton instance
 const authService = new AuthService();
 export default authService;
