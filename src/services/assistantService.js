@@ -13,7 +13,7 @@ export class AssistantService {
       
       return assistants
         .filter(user => user.role === 'assistant')
-        .map(this.transformAssistantData);
+        .map(AssistantService.transformAssistantData);
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to fetch assistants'));
     }
@@ -23,7 +23,7 @@ export class AssistantService {
   static async createAssistant(assistantData) {
     try {
       // Validate required fields
-      this.validateAssistantData(assistantData);
+      AssistantService.validateAssistantData(assistantData);
 
       const payload = {
         firstName: assistantData.firstName.trim(),
@@ -37,7 +37,7 @@ export class AssistantService {
       return {
         success: true,
         message: 'Assistant created successfully',
-        assistant: this.transformAssistantData(response.assistant || response),
+        assistant: AssistantService.transformAssistantData(response.assistant || response),
         tempPassword: response.tempPassword // For displaying to admin
       };
     } catch (error) {
@@ -66,7 +66,7 @@ export class AssistantService {
       return {
         success: true,
         message: 'Assistant updated successfully',
-        assistant: this.transformAssistantData(response.assistant || response)
+        assistant: AssistantService.transformAssistantData(response.assistant || response)
       };
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to update assistant'));
@@ -103,7 +103,7 @@ export class AssistantService {
       return {
         success: true,
         message: `Assistant ${response.isActive ? 'activated' : 'deactivated'} successfully`,
-        assistant: this.transformAssistantData(response.assistant || response)
+        assistant: AssistantService.transformAssistantData(response.assistant || response)
       };
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to toggle assistant status'));
@@ -144,7 +144,7 @@ export class AssistantService {
 
       return {
         success: true,
-        assistant: this.transformAssistantData(response)
+        assistant: AssistantService.transformAssistantData(response)
       };
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to fetch assistant'));
@@ -186,7 +186,7 @@ export class AssistantService {
       
       return assistants
         .filter(user => user.role === 'assistant')
-        .map(this.transformAssistantData);
+        .map(AssistantService.transformAssistantData);
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to search assistants'));
     }
@@ -209,7 +209,7 @@ export class AssistantService {
       return {
         success: true,
         message: `${assistantIds.length} assistants updated successfully`,
-        assistants: response.assistants?.map(this.transformAssistantData) || []
+        assistants: response.assistants?.map(AssistantService.transformAssistantData) || []
       };
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to update assistants'));
@@ -263,7 +263,7 @@ export class AssistantService {
       updatedAt: assistant.updatedAt || new Date().toISOString(),
       mustChangePassword: assistant.mustChangePassword || false,
       fullName: `${assistant.firstName || ''} ${assistant.lastName || ''}`.trim(),
-      initials: this.getInitials(assistant.firstName, assistant.lastName),
+      initials: AssistantService.getInitials(assistant.firstName, assistant.lastName),
       status: assistant.isActive ? 'active' : 'inactive',
       statusColor: assistant.isActive ? 'green' : 'red',
       lastLoginFormatted: assistant.lastLogin ? new Date(assistant.lastLogin).toLocaleDateString() : 'Never'
@@ -284,7 +284,7 @@ export class AssistantService {
 
     if (!data.email?.trim()) {
       errors.push('Email is required');
-    } else if (!this.isValidEmail(data.email.trim())) {
+    } else if (!AssistantService.isValidEmail(data.email.trim())) {
       errors.push('Please enter a valid email address');
     }
 
