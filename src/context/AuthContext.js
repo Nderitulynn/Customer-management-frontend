@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
-import  authService  from '../services/authService';
+import authService from '../services/authService';
 
 // Initial state
 const initialState = {
@@ -147,38 +147,31 @@ export const AuthProvider = ({ children }) => {
     };
   }, [state.isAuthenticated, state.token]);
 
-  // Initialize authentication
+  // FIXED: Initialize authentication using authService.initializeAuth()
   const initializeAuth = async () => {
     try {
-      // Updated storage keys to match AuthService
-      const token = localStorage.getItem('token');
-      const userData = localStorage.getItem('user');
-
-      if (token && userData) {
-        const user = JSON.parse(userData);
-        
-        // Verify token validity
-        const isValid = await authService.verifyToken(token);
-        
-        if (isValid) {
-          dispatch({
-            type: AUTH_ACTIONS.LOGIN_SUCCESS,
-            payload: {
-              user,
-              token,
-              permissions: user.permissions || []
-            }
-          });
-        } else {
-          // Token is invalid, clear stored data
-          clearStoredAuth();
-          dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
-        }
+      console.log('🔍 AuthContext: Starting initialization...');
+      
+      // Use the built-in authService.initializeAuth() method
+      const authResult = await authService.initializeAuth();
+      console.log('🔍 AuthContext: Auth result:', authResult);
+      
+      if (authResult.authenticated) {
+        console.log('✅ User is authenticated:', authResult.user);
+        dispatch({
+          type: AUTH_ACTIONS.LOGIN_SUCCESS,
+          payload: {
+            user: authResult.user,
+            token: authService.getToken(),
+            permissions: authResult.user?.permissions || []
+          }
+        });
       } else {
+        console.log('❌ User is not authenticated');
         dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
       }
     } catch (error) {
-      console.error('Auth initialization error:', error);
+      console.error('❌ Auth initialization error:', error);
       clearStoredAuth();
       dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
     }
@@ -208,14 +201,13 @@ export const AuthProvider = ({ children }) => {
     return 'An unexpected error occurred. Please try again.';
   };
 
-  // Login function - FIXED
+  // Login function
   const login = async (credentials) => {
     try {
       dispatch({ type: AUTH_ACTIONS.LOGIN_START });
 
       const response = await authService.login(credentials);
       
-      // FIX: Extract data directly from response (not nested under .data)
       if (response.success) {
         const { user, token, permissions } = response;
         
@@ -268,7 +260,6 @@ export const AuthProvider = ({ children }) => {
   // Token refresh function
   const refreshToken = async () => {
     try {
-      // Updated storage key to match AuthService
       const currentToken = state.token || localStorage.getItem('token');
       
       if (!currentToken) {
@@ -280,7 +271,6 @@ export const AuthProvider = ({ children }) => {
       if (response.success) {
         const { token, user } = response;
         
-        // Updated storage keys to match AuthService
         localStorage.setItem('token', token);
         if (user) {
           localStorage.setItem('user', JSON.stringify(user));
@@ -393,7 +383,6 @@ export const AuthProvider = ({ children }) => {
   const setupSessionTimeout = () => {
     clearSessionTimeout();
     
-    // Updated storage key to match AuthService
     const loginTime = localStorage.getItem('loginTime');
     if (!loginTime) return;
 
@@ -440,7 +429,6 @@ export const AuthProvider = ({ children }) => {
 
   // Clear stored authentication data
   const clearStoredAuth = () => {
-    // Updated storage keys to match AuthService
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('loginTime');

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, User, Mail, Eye, EyeOff, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { createAssistant } from '../../services/assistantService';
 
@@ -19,9 +19,16 @@ const AssistantRegistrationModal = ({
   const [showSuccess, setShowSuccess] = useState(false);
   const [tempPassword, setTempPassword] = useState('');
   const [showTempPassword, setShowTempPassword] = useState(false);
+  
+  // Add ref for form to handle autofill
+  const formRef = useRef(null);
 
-  // Reset form when modal opens/closes
+  // DEBUG: Log initial state
+  console.log('🔍 Modal rendered - isLoading initial state:', isLoading);
+
+  // Reset form when modal opens/closes + Handle autofill
   useEffect(() => {
+    console.log('🔍 useEffect triggered - isOpen:', isOpen);
     if (isOpen) {
       setFormData({
         firstName: '',
@@ -32,8 +39,25 @@ const AssistantRegistrationModal = ({
       setShowSuccess(false);
       setTempPassword('');
       setShowTempPassword(false);
+      console.log('🔍 Modal opened - resetting states');
+      
+      // Force clear autofill after a short delay
+      setTimeout(() => {
+        if (formRef.current) {
+          const inputs = formRef.current.querySelectorAll('input[type="text"], input[type="email"]');
+          inputs.forEach(input => {
+            input.value = '';
+            input.setAttribute('value', '');
+          });
+        }
+      }, 100);
     }
   }, [isOpen]);
+
+  // DEBUG: Monitor isLoading changes
+  useEffect(() => {
+    console.log('🔍 isLoading changed to:', isLoading);
+  }, [isLoading]);
 
   // Handle form input changes
   const handleInputChange = (e) => {
@@ -77,47 +101,61 @@ const AssistantRegistrationModal = ({
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
+    console.log('🔍 Form submission started');
     
     if (!validateForm()) {
+      console.log('🔍 Form validation failed');
       return;
     }
 
+    console.log('🔍 Setting isLoading to true');
     setIsLoading(true);
     
     try {
+      console.log('🔍 Calling createAssistant with data:', formData);
       const result = await createAssistant(formData);
+      console.log('🔍 createAssistant succeeded:', result);
       
       setTempPassword(result.tempPassword);
       setShowSuccess(true);
       
       // Call success callback if provided
       if (onSuccess) {
+        console.log('🔍 Calling onSuccess callback');
         onSuccess(result);
       }
       
     } catch (error) {
+      console.log('🔍 createAssistant failed:', error);
       const errorMessage = error.message || 'Failed to create assistant';
       setErrors({ submit: errorMessage });
       
       // Call error callback if provided
       if (onError) {
+        console.log('🔍 Calling onError callback');
         onError(error);
       }
     } finally {
+      console.log('🔍 Setting isLoading to false');
       setIsLoading(false);
     }
   };
 
   // Handle modal close
   const handleClose = () => {
+    console.log('🔍 handleClose called - isLoading:', isLoading);
     if (!isLoading) {
+      console.log('🔍 Closing modal');
       onClose();
+    } else {
+      console.log('🔍 Modal close blocked - loading in progress');
     }
   };
 
   // Handle keyboard events
   const handleKeyDown = (e) => {
     if (e.key === 'Escape' && !isLoading) {
+      console.log('🔍 Escape key pressed - closing modal');
       handleClose();
     }
   };
@@ -125,11 +163,21 @@ const AssistantRegistrationModal = ({
   // Copy temp password to clipboard
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
+    console.log('🔍 Password copied to clipboard');
     // You might want to show a toast notification here
   };
 
   // Don't render if not open
-  if (!isOpen) return null;
+  if (!isOpen) {
+    console.log('🔍 Modal not open - not rendering');
+    return null;
+  }
+
+  console.log('🔍 Rendering modal - Current states:', {
+    isLoading,
+    showSuccess,
+    hasErrors: Object.keys(errors).length > 0
+  });
 
   return (
     <div 
@@ -160,17 +208,37 @@ const AssistantRegistrationModal = ({
         <div className="p-6">
           {!showSuccess ? (
             // Registration Form
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form 
+              ref={formRef}
+              onSubmit={handleSubmit} 
+              className="space-y-4"
+              autoComplete="off"
+              noValidate
+            >
+              {/* Hidden fake fields to confuse autofill */}
+              <input 
+                type="text" 
+                style={{display: 'none'}} 
+                autoComplete="off" 
+                tabIndex="-1"
+              />
+              <input 
+                type="password" 
+                style={{display: 'none'}} 
+                autoComplete="off" 
+                tabIndex="-1"
+              />
+              
               {/* First Name */}
               <div>
-                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="assistantFirstName" className="block text-sm font-medium text-gray-700 mb-1">
                   First Name *
                 </label>
                 <div className="relative">
                   <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                   <input
                     type="text"
-                    id="firstName"
+                    id="assistantFirstName"
                     name="firstName"
                     value={formData.firstName}
                     onChange={handleInputChange}
@@ -179,6 +247,13 @@ const AssistantRegistrationModal = ({
                       errors.firstName ? 'border-red-500' : 'border-gray-300'
                     }`}
                     placeholder="Enter first name"
+                    autoComplete="nope"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck="false"
+                    data-lpignore="true"
+                    data-form-type="other"
+                    data-1p-ignore="true"
                     autoFocus
                   />
                 </div>
@@ -192,14 +267,14 @@ const AssistantRegistrationModal = ({
 
               {/* Last Name */}
               <div>
-                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="assistantLastName" className="block text-sm font-medium text-gray-700 mb-1">
                   Last Name *
                 </label>
                 <div className="relative">
                   <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                   <input
                     type="text"
-                    id="lastName"
+                    id="assistantLastName"
                     name="lastName"
                     value={formData.lastName}
                     onChange={handleInputChange}
@@ -208,6 +283,13 @@ const AssistantRegistrationModal = ({
                       errors.lastName ? 'border-red-500' : 'border-gray-300'
                     }`}
                     placeholder="Enter last name"
+                    autoComplete="nope"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck="false"
+                    data-lpignore="true"
+                    data-form-type="other"
+                    data-1p-ignore="true"
                   />
                 </div>
                 {errors.lastName && (
@@ -220,14 +302,14 @@ const AssistantRegistrationModal = ({
 
               {/* Email */}
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="assistantEmail" className="block text-sm font-medium text-gray-700 mb-1">
                   Email Address *
                 </label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                   <input
                     type="email"
-                    id="email"
+                    id="assistantEmail"
                     name="email"
                     value={formData.email}
                     onChange={handleInputChange}
@@ -236,6 +318,13 @@ const AssistantRegistrationModal = ({
                       errors.email ? 'border-red-500' : 'border-gray-300'
                     }`}
                     placeholder="Enter email address"
+                    autoComplete="nope"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck="false"
+                    data-lpignore="true"
+                    data-form-type="other"
+                    data-1p-ignore="true"
                   />
                 </div>
                 {errors.email && (
@@ -318,6 +407,7 @@ const AssistantRegistrationModal = ({
                       value={tempPassword}
                       readOnly
                       className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-center font-mono"
+                      autoComplete="new-password"
                     />
                     <button
                       type="button"

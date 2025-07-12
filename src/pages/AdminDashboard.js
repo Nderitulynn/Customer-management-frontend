@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Users, 
   MessageSquare, 
@@ -19,8 +19,8 @@ import {
   Bell,
   RefreshCw,
   AlertCircle,
-  X, // <- ADDED THIS MISSING IMPORT
-  CheckCircle // <- ADDED THIS MISSING IMPORT
+  X,
+  CheckCircle
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import LoadingSpinner from '../components/common/LoadingSpinner';
@@ -45,7 +45,7 @@ const AdminDashboard = () => {
       activeChats: 23,
       monthlyRevenue: 8450,
       todayOrders: 12,
-      totalAssistants: 0, // Will be updated from API
+      totalAssistants: 0,
       responseRate: 94
     },
     recentOrders: [
@@ -55,7 +55,7 @@ const AdminDashboard = () => {
       { id: 4, customer: 'John Smith', item: 'Boho Curtain', amount: 200, status: 'Processing', date: '2024-01-14' },
       { id: 5, customer: 'Lisa Wilson', item: 'Keychain Set', amount: 35, status: 'Shipped', date: '2024-01-13' }
     ],
-    assistants: [], // Will be populated from API
+    assistants: [],
     recentCustomers: [
       { id: 1, name: 'Sarah Johnson', phone: '+1234567890', lastOrder: '2024-01-15', totalOrders: 3, totalSpent: 340 },
       { id: 2, name: 'Mike Chen', phone: '+1234567891', lastOrder: '2024-01-15', totalOrders: 1, totalSpent: 120 },
@@ -65,8 +65,8 @@ const AdminDashboard = () => {
     ]
   });
 
-  // Fetch assistants from API
-  const fetchAssistants = async () => {
+  // Fetch assistants from API - memoized
+  const fetchAssistants = useCallback(async () => {
     try {
       setAssistantsLoading(true);
       setError(null);
@@ -86,25 +86,24 @@ const AdminDashboard = () => {
     } finally {
       setAssistantsLoading(false);
     }
-  };
+  }, []);
 
-  // Handle assistant status toggle
-  const handleToggleAssistantStatus = async (assistantId) => {
+  // Handle assistant status toggle - memoized
+  const handleToggleAssistantStatus = useCallback(async (assistantId) => {
     try {
       await toggleAssistantStatus(assistantId);
       setSuccessMessage('Assistant status updated successfully');
-      fetchAssistants(); // Refresh the list
+      fetchAssistants();
       
-      // Clear success message after 3 seconds
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
       setError('Failed to update assistant status');
       console.error('Error toggling assistant status:', err);
     }
-  };
+  }, [fetchAssistants]);
 
-  // Handle assistant deletion
-  const handleDeleteAssistant = async (assistantId) => {
+  // Handle assistant deletion - memoized
+  const handleDeleteAssistant = useCallback(async (assistantId) => {
     if (!window.confirm('Are you sure you want to delete this assistant?')) {
       return;
     }
@@ -112,31 +111,34 @@ const AdminDashboard = () => {
     try {
       await deleteAssistant(assistantId);
       setSuccessMessage('Assistant deleted successfully');
-      fetchAssistants(); // Refresh the list
+      fetchAssistants();
       
-      // Clear success message after 3 seconds
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
       setError('Failed to delete assistant');
       console.error('Error deleting assistant:', err);
     }
-  };
+  }, [fetchAssistants]);
 
-  // Handle successful assistant creation
-  const handleAssistantCreated = (result) => {
+  // Handle modal close - memoized
+  const handleCloseModal = useCallback(() => {
+    setShowAssistantModal(false);
+  }, []);
+
+  // Handle successful assistant creation - memoized
+  const handleAssistantCreated = useCallback((result) => {
     setSuccessMessage(`Assistant ${result.user.firstName} ${result.user.lastName} created successfully!`);
     setShowAssistantModal(false);
-    fetchAssistants(); // Refresh the list
+    fetchAssistants();
     
-    // Clear success message after 5 seconds
     setTimeout(() => setSuccessMessage(''), 5000);
-  };
+  }, [fetchAssistants]);
 
-  // Handle assistant creation error
-  const handleAssistantCreationError = (error) => {
+  // Handle assistant creation error - memoized
+  const handleAssistantCreationError = useCallback((error) => {
     setError('Failed to create assistant. Please try again.');
     console.error('Assistant creation error:', error);
-  };
+  }, []);
 
   // Initial data fetch
   useEffect(() => {
@@ -147,7 +149,7 @@ const AdminDashboard = () => {
     };
 
     initializeDashboard();
-  }, []);
+  }, [fetchAssistants]);
 
   // Clear error message after 5 seconds
   useEffect(() => {
@@ -580,7 +582,7 @@ const AdminDashboard = () => {
       {/* Assistant Registration Modal */}
       <AssistantRegistrationModal
         isOpen={showAssistantModal}
-        onClose={() => setShowAssistantModal(false)}
+        onClose={handleCloseModal}
         onSuccess={handleAssistantCreated}
         onError={handleAssistantCreationError}
       />
