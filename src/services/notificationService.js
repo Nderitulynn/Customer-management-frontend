@@ -31,38 +31,54 @@ class NotificationService {
         return false;
       }
 
+      // Check if SSE endpoint exists
+      if (!API_ENDPOINTS?.NOTIFICATIONS?.SSE) {
+        console.warn('SSE endpoint not configured for notifications');
+        return false;
+      }
+
       // Close existing connection if any
       this.disconnect();
 
-      // Create Server-Sent Events connection
-      this.eventSource = new EventSource(`${API_ENDPOINTS.NOTIFICATIONS.SSE}?token=${token}`);
-      
-      this.eventSource.onopen = () => {
-        this.isConnected = true;
-        this.reconnectAttempts = 0;
-        console.log('Real-time notifications connected');
-        this.emit('connection:open');
-      };
+      try {
+        // Create Server-Sent Events connection with proper error handling
+        const sseUrl = `${API_ENDPOINTS.NOTIFICATIONS.SSE}?token=${token}`;
+        this.eventSource = new EventSource(sseUrl);
+        
+        this.eventSource.onopen = () => {
+          this.isConnected = true;
+          this.reconnectAttempts = 0;
+          console.log('Real-time notifications connected');
+          this.emit('connection:open');
+        };
 
-      this.eventSource.onmessage = (event) => {
-        try {
-          const notification = JSON.parse(event.data);
-          this.handleIncomingNotification(notification);
-        } catch (error) {
-          console.error('Error parsing notification:', error);
-        }
-      };
+        this.eventSource.onmessage = (event) => {
+          try {
+            const notification = JSON.parse(event.data);
+            this.handleIncomingNotification(notification);
+          } catch (error) {
+            console.error('Error parsing notification:', error);
+          }
+        };
 
-      this.eventSource.onerror = (error) => {
-        console.error('Notification connection error:', error);
+        this.eventSource.onerror = (error) => {
+          console.error('Notification connection error:', error);
+          this.isConnected = false;
+          this.emit('connection:error', error);
+          this.handleReconnection();
+        };
+
+        return true;
+      } catch (eventSourceError) {
+        console.warn('EventSource creation failed:', eventSourceError.message);
         this.isConnected = false;
-        this.emit('connection:error', error);
-        this.handleReconnection();
-      };
-
-      return true;
+        this.emit('connection:failed', eventSourceError);
+        return false;
+      }
     } catch (error) {
       console.error('Failed to initialize real-time notifications:', error);
+      this.isConnected = false;
+      this.emit('connection:failed', error);
       return false;
     }
   }
@@ -72,7 +88,11 @@ class NotificationService {
    */
   disconnect() {
     if (this.eventSource) {
-      this.eventSource.close();
+      try {
+        this.eventSource.close();
+      } catch (error) {
+        console.warn('Error closing EventSource:', error);
+      }
       this.eventSource = null;
       this.isConnected = false;
       console.log('Real-time notifications disconnected');
@@ -88,7 +108,9 @@ class NotificationService {
       console.log(`Attempting to reconnect... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
       
       setTimeout(() => {
-        this.initializeRealTime();
+        this.initializeRealTime().catch(error => {
+          console.error('Reconnection attempt failed:', error);
+        });
       }, this.reconnectInterval * this.reconnectAttempts);
     } else {
       console.error('Max reconnection attempts reached');
@@ -101,19 +123,23 @@ class NotificationService {
    * @param {Object} notification - Notification data
    */
   handleIncomingNotification(notification) {
-    // Play sound if enabled
-    if (this.soundEnabled && notification.sound !== false) {
-      this.playNotificationSound(notification.type);
-    }
+    try {
+      // Play sound if enabled
+      if (this.soundEnabled && notification.sound !== false) {
+        this.playNotificationSound(notification.type);
+      }
 
-    // Show desktop notification if enabled
-    if (this.desktopEnabled && notification.desktop !== false) {
-      this.showDesktopNotification(notification);
-    }
+      // Show desktop notification if enabled
+      if (this.desktopEnabled && notification.desktop !== false) {
+        this.showDesktopNotification(notification);
+      }
 
-    // Emit to listeners
-    this.emit('notification:received', notification);
-    this.emit(`notification:${notification.type}`, notification);
+      // Emit to listeners
+      this.emit('notification:received', notification);
+      this.emit(`notification:${notification.type}`, notification);
+    } catch (error) {
+      console.error('Error handling incoming notification:', error);
+    }
   }
 
   /**
