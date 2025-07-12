@@ -86,6 +86,7 @@ export const API_ENDPOINTS = {
   
   // Notifications
   NOTIFICATIONS: '/notifications',
+  NOTIFICATIONS_SSE: '/notifications/sse',
   NOTIFICATIONS_MARK_READ: '/notifications/:id/read',
   NOTIFICATIONS_MARK_ALL_READ: '/notifications/mark-all-read',
   NOTIFICATIONS_SETTINGS: '/notifications/settings',
