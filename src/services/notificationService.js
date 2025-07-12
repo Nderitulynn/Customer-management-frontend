@@ -2,6 +2,9 @@ import api from './api';
 import { storage } from '../utils/storage';
 import { NOTIFICATION_TYPES, API_ENDPOINTS, NOTIFICATION_SOUNDS } from '../utils/constants';
 
+// Feature toggle for real-time notifications
+const ENABLE_REAL_TIME_NOTIFICATIONS = false; // Set to true to enable SSE real-time notifications
+
 /**
  * Notification Service for Macrame Business CMS
  * Handles real-time notifications, push notifications, and notification management
@@ -24,6 +27,12 @@ class NotificationService {
    * @returns {Promise<Boolean>} Connection status
    */
   async initializeRealTime() {
+    // Feature toggle check - early return if real-time notifications are disabled
+    if (!ENABLE_REAL_TIME_NOTIFICATIONS) {
+      console.log('Real-time notifications are disabled via feature toggle');
+      return false;
+    }
+
     try {
       const token = storage.get('token');
       if (!token) {
