@@ -565,6 +565,13 @@ class UserService {
         };
       }
 
+      if (!['active', 'inactive', 'suspended'].includes(status)) {
+        return {
+          success: false,
+          message: 'Invalid status. Must be: active, inactive, or suspended'
+        };
+      }
+
       const response = await api.patch(API_ENDPOINTS.USER.BULK_UPDATE_STATUS, {
         userIds,
         status
@@ -584,6 +591,132 @@ class UserService {
   }
 
   /**
+   * Bulk delete users (Admin only)
+   * @param {Array} userIds - Array of user IDs to delete
+   * @returns {Promise<Object>} Bulk delete result
+   */
+  async bulkDeleteUsers(userIds) {
+    try {
+      if (!userIds || userIds.length === 0) {
+        return {
+          success: false,
+          message: 'User IDs are required'
+        };
+      }
+
+      const response = await api.delete(API_ENDPOINTS.USER.BULK_DELETE, {
+        data: { userIds }
+      });
+
+      return {
+        success: true,
+        data: response.data,
+        message: `${userIds.length} users deleted successfully`
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to delete users'
+      };
+    }
+  }
+
+  /**
+   * Get assistant workload data for admin dashboard
+   * @returns {Promise<Object>} Assistant workload statistics
+   */
+  async getAssistantWorkload() {
+    try {
+      const response = await api.get(API_ENDPOINTS.USER.ASSISTANT_WORKLOAD);
+
+      return {
+        success: true,
+        data: response.data.workload || [],
+        message: 'Assistant workload loaded successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: [],
+        message: error.response?.data?.message || 'Failed to load assistant workload'
+      };
+    }
+  }
+
+  /**
+   * Get available assistants for customer assignment
+   * @param {Object} filters - Filter parameters
+   * @returns {Promise<Object>} Available assistants
+   */
+  async getAvailableAssistants(filters = {}) {
+    try {
+      const params = {
+        includeWorkload: filters.includeWorkload || true,
+        maxWorkload: filters.maxWorkload,
+        sortBy: filters.sortBy || 'workload',
+        sortOrder: filters.sortOrder || 'asc'
+      };
+
+      const response = await api.get(API_ENDPOINTS.USER.AVAILABLE_ASSISTANTS, {
+        params
+      });
+
+      return {
+        success: true,
+        data: response.data.assistants || [],
+        message: 'Available assistants loaded successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: [],
+        message: error.response?.data?.message || 'Failed to load available assistants'
+      };
+    }
+  }
+
+  /**
+   * Get assistant performance metrics
+   * @param {String} assistantId - Assistant user ID
+   * @param {Object} filters - Filter parameters (dateRange, etc.)
+   * @returns {Promise<Object>} Assistant performance data
+   */
+  async getAssistantPerformance(assistantId, filters = {}) {
+    try {
+      if (!assistantId) {
+        return {
+          success: false,
+          data: null,
+          message: 'Assistant ID is required'
+        };
+      }
+
+      const params = {
+        dateFrom: filters.dateFrom,
+        dateTo: filters.dateTo,
+        includeCustomers: filters.includeCustomers || false,
+        includeActivity: filters.includeActivity || false
+      };
+
+      const response = await api.get(`${API_ENDPOINTS.USER.ASSISTANT_PERFORMANCE}/${assistantId}`, {
+        params
+      });
+
+      return {
+        success: true,
+        data: response.data.performance,
+        message: 'Assistant performance loaded successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        message: error.response?.data?.message || 'Failed to load assistant performance'
+      };
+    }
+  }
+
+  /**
    * Export users data (Admin only)
    * @param {Object} filters - Export filters
    * @returns {Promise<Object>} Export result
@@ -595,13 +728,24 @@ class UserService {
         role: filters.role,
         status: filters.status,
         dateFrom: filters.dateFrom,
-        dateTo: filters.dateTo
+        dateTo: filters.dateTo,
+        includeWorkload: filters.includeWorkload || false
       };
 
       const response = await api.get(API_ENDPOINTS.USER.EXPORT, {
         params,
         responseType: 'blob'
       });
+
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `users_export_${new Date().toISOString().split('T')[0]}.${params.format}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
 
       return {
         success: true,
@@ -612,6 +756,70 @@ class UserService {
       return {
         success: false,
         message: error.response?.data?.message || 'Failed to export users'
+      };
+    }
+  }
+
+  /**
+   * Send notification to user (Admin only)
+   * @param {String} userId - User ID
+   * @param {Object} notification - Notification data
+   * @returns {Promise<Object>} Notification result
+   */
+  async sendNotification(userId, notification) {
+    try {
+      if (!userId) {
+        return {
+          success: false,
+          message: 'User ID is required'
+        };
+      }
+
+      if (!notification.title || !notification.message) {
+        return {
+          success: false,
+          message: 'Notification title and message are required'
+        };
+      }
+
+      const response = await api.post(`${API_ENDPOINTS.USER.SEND_NOTIFICATION}/${userId}`, {
+        title: notification.title,
+        message: notification.message,
+        type: notification.type || 'info',
+        priority: notification.priority || 'normal'
+      });
+
+      return {
+        success: true,
+        data: response.data,
+        message: 'Notification sent successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to send notification'
+      };
+    }
+  }
+
+  /**
+   * Get user overview for dashboard
+   * @returns {Promise<Object>} User overview data
+   */
+  async getUserOverview() {
+    try {
+      const response = await api.get(API_ENDPOINTS.USER.OVERVIEW);
+
+      return {
+        success: true,
+        data: response.data.overview,
+        message: 'User overview loaded successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        message: error.response?.data?.message || 'Failed to load user overview'
       };
     }
   }
