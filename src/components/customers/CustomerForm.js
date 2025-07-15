@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { customerApi } from '../../services/customerApi';
-import { userApi } from '../../services/userApi';
 import { authApi } from '../../services/authApi';
 import { isValidCustomerData, isValidEmail, isValidPhone } from '../../utils/validation';
 
@@ -12,13 +11,11 @@ const CustomerForm = ({ customerId = null, onSubmit, onCancel }) => {
     phone: '',
     source: '',
     notes: '',
-    assignedTo: '',
     status: 'active'
   });
   
   const [currentUser, setCurrentUser] = useState(null);
   const [formConfig, setFormConfig] = useState(null);
-  const [availableAssistants, setAvailableAssistants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
@@ -41,12 +38,6 @@ const CustomerForm = ({ customerId = null, onSubmit, onCancel }) => {
       const configResponse = await customerApi.getFormConfig();
       setFormConfig(configResponse.data);
       
-      // If admin, get available assistants for assignment dropdown
-      if (userResponse.data.role === 'admin') {
-        const assistantsResponse = await userApi.getAssistants();
-        setAvailableAssistants(assistantsResponse.data);
-      }
-      
       // If editing existing customer, load customer data
       if (customerId) {
         const customerResponse = await customerApi.getCustomer(customerId);
@@ -56,7 +47,6 @@ const CustomerForm = ({ customerId = null, onSubmit, onCancel }) => {
           phone: customerResponse.data.phone || '',
           source: customerResponse.data.source || '',
           notes: customerResponse.data.notes || '',
-          assignedTo: customerResponse.data.assignedTo?._id || '',
           status: customerResponse.data.status || 'active'
         });
       }
@@ -114,11 +104,6 @@ const CustomerForm = ({ customerId = null, onSubmit, onCancel }) => {
       }
     }
     
-    // Role-specific validation
-    if (currentUser?.role === 'admin' && !formData.assignedTo) {
-      newErrors.assignedTo = 'Assignment is required for admin users';
-    }
-    
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -162,7 +147,9 @@ const CustomerForm = ({ customerId = null, onSubmit, onCancel }) => {
         response = await customerApi.updateCustomer(customerId, formData);
       } else {
         // Create new customer
-        // Auto-assignment logic is handled by the backend for assistants
+        // Auto-assignment logic is handled by the backend:
+        // - Admin creates customers: start unassigned
+        // - Assistant creates customers: auto-assigned to themselves
         response = await customerApi.createCustomer(formData);
       }
       
@@ -232,6 +219,16 @@ const CustomerForm = ({ customerId = null, onSubmit, onCancel }) => {
         {errors.general && (
           <div className="error-message general-error">
             {errors.general}
+          </div>
+        )}
+        
+        {/* Assignment info message for new customers */}
+        {!customerId && (
+          <div className="info-message">
+            {currentUser.role === 'admin' 
+              ? 'New customers will start unassigned and can be assigned later.'
+              : 'This customer will be automatically assigned to you.'
+            }
           </div>
         )}
         
@@ -326,35 +323,6 @@ const CustomerForm = ({ customerId = null, onSubmit, onCancel }) => {
             </select>
             {getFieldError('source') && (
               <span className="error-message">{getFieldError('source')}</span>
-            )}
-          </div>
-        )}
-        
-        {/* Assignment Field - Only visible to admin users */}
-        {currentUser.role === 'admin' && isFieldVisible('assignedTo') && (
-          <div className="form-group">
-            <label htmlFor="assignedTo" className="form-label">
-              Assign to Assistant *
-            </label>
-            <select
-              id="assignedTo"
-              name="assignedTo"
-              value={formData.assignedTo}
-              onChange={handleInputChange}
-              disabled={!isFieldEditable('assignedTo')}
-              className={`form-select ${getFieldError('assignedTo') ? 'error' : ''}`}
-            >
-              <option value="">Select assistant</option>
-              {availableAssistants
-                .filter(assistant => assistant.isActive)
-                .map(assistant => (
-                  <option key={assistant._id} value={assistant._id}>
-                    {assistant.firstName} {assistant.lastName} ({assistant.email})
-                  </option>
-                ))}
-            </select>
-            {getFieldError('assignedTo') && (
-              <span className="error-message">{getFieldError('assignedTo')}</span>
             )}
           </div>
         )}
