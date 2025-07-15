@@ -12,9 +12,13 @@ import {
   Users,
   AlertCircle,
   CheckCircle,
-  User
+  User,
+  UserCheck,
+  UserX,
+  Clock,
+  Star
 } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { customerService } from '../../services/api';
 import { toast } from 'react-toastify';
 
@@ -26,18 +30,20 @@ const CustomerList = () => {
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
+  const [assignmentFilter, setAssignmentFilter] = useState(''); // New filter for assignment status
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCustomers, setTotalCustomers] = useState(0);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignmentLoading, setAssignmentLoading] = useState(false);
+  const [claimingCustomer, setClaimingCustomer] = useState(null);
 
   const isAdmin = user?.role === 'admin';
   const isAssistant = user?.role === 'assistant';
 
   // Fetch customers with filters and pagination
-  const fetchCustomers = useCallback(async (page = 1, search = '', status = '') => {
+  const fetchCustomers = useCallback(async (page = 1, search = '', status = '', assignment = '') => {
     try {
       setLoading(true);
       setError('');
@@ -46,7 +52,8 @@ const CustomerList = () => {
         page,
         limit: 10,
         search: search.trim(),
-        status: status || undefined
+        status: status || undefined,
+        assignmentStatus: assignment || undefined
       };
 
       const response = await customerService.getCustomers(params);
@@ -83,27 +90,27 @@ const CustomerList = () => {
 
   // Initial data fetch
   useEffect(() => {
-    fetchCustomers(1, searchTerm, selectedStatus);
+    fetchCustomers(1, searchTerm, selectedStatus, assignmentFilter);
     fetchAssistants();
-  }, [fetchCustomers, fetchAssistants, searchTerm, selectedStatus]);
+  }, [fetchCustomers, fetchAssistants, searchTerm, selectedStatus, assignmentFilter]);
 
   // Handle search with debounce
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       if (currentPage === 1) {
-        fetchCustomers(1, searchTerm, selectedStatus);
+        fetchCustomers(1, searchTerm, selectedStatus, assignmentFilter);
       } else {
         setCurrentPage(1);
       }
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [searchTerm, selectedStatus, fetchCustomers, currentPage]);
+  }, [searchTerm, selectedStatus, assignmentFilter, fetchCustomers, currentPage]);
 
   // Handle pagination
   const handlePageChange = (page) => {
     setCurrentPage(page);
-    fetchCustomers(page, searchTerm, selectedStatus);
+    fetchCustomers(page, searchTerm, selectedStatus, assignmentFilter);
   };
 
   // Handle customer assignment
@@ -121,7 +128,7 @@ const CustomerList = () => {
         );
         
         // Refresh customer list
-        fetchCustomers(currentPage, searchTerm, selectedStatus);
+        fetchCustomers(currentPage, searchTerm, selectedStatus, assignmentFilter);
         setShowAssignModal(false);
         setSelectedCustomer(null);
       } else {
@@ -132,6 +139,27 @@ const CustomerList = () => {
       toast.error('Failed to assign customer. Please try again.');
     } finally {
       setAssignmentLoading(false);
+    }
+  };
+
+  // Handle customer claim (for assistants)
+  const handleClaimCustomer = async (customerId) => {
+    try {
+      setClaimingCustomer(customerId);
+      
+      const response = await customerService.assignCustomer(customerId, user._id);
+      
+      if (response.success) {
+        toast.success('Customer claimed successfully!');
+        fetchCustomers(currentPage, searchTerm, selectedStatus, assignmentFilter);
+      } else {
+        toast.error(response.message || 'Failed to claim customer');
+      }
+    } catch (err) {
+      console.error('Error claiming customer:', err);
+      toast.error('Failed to claim customer. Please try again.');
+    } finally {
+      setClaimingCustomer(null);
     }
   };
 
@@ -146,7 +174,7 @@ const CustomerList = () => {
       
       if (response.success) {
         toast.success('Customer deleted successfully!');
-        fetchCustomers(currentPage, searchTerm, selectedStatus);
+        fetchCustomers(currentPage, searchTerm, selectedStatus, assignmentFilter);
       } else {
         toast.error(response.message || 'Failed to delete customer');
       }
@@ -172,11 +200,52 @@ const CustomerList = () => {
     }
   };
 
+  // Get assignment status badge
+  const getAssignmentBadge = (customer) => {
+    if (customer.assignedTo) {
+      const isAssignedToCurrentUser = customer.assignedTo._id === user._id;
+      return (
+        <div className="flex items-center">
+          <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${
+            isAssignedToCurrentUser 
+              ? 'bg-blue-100 text-blue-800' 
+              : 'bg-green-100 text-green-800'
+          }`}>
+            <UserCheck className="w-3 h-3 mr-1" />
+            {isAssignedToCurrentUser ? 'You' : 'Assigned'}
+          </span>
+          {isAssignedToCurrentUser && (
+            <Star className="w-4 h-4 text-yellow-500 ml-1" />
+          )}
+        </div>
+      );
+    } else {
+      return (
+        <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
+          <UserX className="w-3 h-3 mr-1" />
+          Unassigned
+        </span>
+      );
+    }
+  };
+
   // Format phone number
   const formatPhoneNumber = (phone) => {
     if (!phone) return '';
     return phone.startsWith('+') ? phone : `+${phone}`;
   };
+
+  // Get filtered customer counts for display
+  const getFilteredCounts = () => {
+    // This would ideally come from the API, but for now we'll estimate
+    const assigned = customers.filter(c => c.assignedTo).length;
+    const unassigned = customers.filter(c => !c.assignedTo).length;
+    const myCustomers = customers.filter(c => c.assignedTo?._id === user._id).length;
+    
+    return { assigned, unassigned, myCustomers };
+  };
+
+  const counts = getFilteredCounts();
 
   if (loading && customers.length === 0) {
     return (
@@ -192,12 +261,12 @@ const CustomerList = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            {isAdmin ? 'All Customers' : 'My Customers'}
+            {isAdmin ? 'All Customers' : 'Customer Management'}
           </h1>
           <p className="text-gray-600 mt-1">
             {isAdmin 
               ? `Manage all customers and assignments (${totalCustomers} total)`
-              : `Manage your assigned customers (${totalCustomers} assigned)`
+              : `Manage your assigned customers (${counts.myCustomers} assigned to you)`
             }
           </p>
         </div>
@@ -209,6 +278,45 @@ const CustomerList = () => {
           <Plus className="w-4 h-4 mr-2" />
           Add Customer
         </button>
+      </div>
+
+      {/* Quick Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="flex items-center">
+            <Users className="w-5 h-5 text-blue-600 mr-2" />
+            <div>
+              <p className="text-sm font-medium text-gray-600">Total Customers</p>
+              <p className="text-2xl font-bold text-gray-900">{totalCustomers}</p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="flex items-center">
+            <UserCheck className="w-5 h-5 text-green-600 mr-2" />
+            <div>
+              <p className="text-sm font-medium text-gray-600">
+                {isAdmin ? 'Assigned' : 'My Customers'}
+              </p>
+              <p className="text-2xl font-bold text-gray-900">
+                {isAdmin ? counts.assigned : counts.myCustomers}
+              </p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="flex items-center">
+            <UserX className="w-5 h-5 text-red-600 mr-2" />
+            <div>
+              <p className="text-sm font-medium text-gray-600">
+                {isAdmin ? 'Unassigned' : 'Available'}
+              </p>
+              <p className="text-2xl font-bold text-gray-900">{counts.unassigned}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Filters */}
@@ -240,6 +348,21 @@ const CustomerList = () => {
               <option value="pending">Pending</option>
             </select>
           </div>
+
+          {/* Assignment Filter */}
+          <div className="relative">
+            <UserCheck className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <select
+              value={assignmentFilter}
+              onChange={(e) => setAssignmentFilter(e.target.value)}
+              className="pl-10 pr-8 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white"
+            >
+              <option value="">All Assignments</option>
+              <option value="assigned">Assigned</option>
+              <option value="unassigned">Unassigned</option>
+              {isAssistant && <option value="mine">My Customers</option>}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -261,10 +384,10 @@ const CustomerList = () => {
           <div className="text-center py-12">
             <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
-              {searchTerm || selectedStatus ? 'No customers found' : 'No customers yet'}
+              {searchTerm || selectedStatus || assignmentFilter ? 'No customers found' : 'No customers yet'}
             </h3>
             <p className="text-gray-600">
-              {searchTerm || selectedStatus 
+              {searchTerm || selectedStatus || assignmentFilter
                 ? 'Try adjusting your search or filters' 
                 : 'Start by adding your first customer'
               }
@@ -283,6 +406,9 @@ const CustomerList = () => {
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Assignment
                   </th>
                   {isAdmin && (
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -320,6 +446,9 @@ const CustomerList = () => {
                         {customer.status}
                       </span>
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {getAssignmentBadge(customer)}
+                    </td>
                     {isAdmin && (
                       <td className="px-6 py-4 whitespace-nowrap">
                         {customer.assignedTo ? (
@@ -352,12 +481,28 @@ const CustomerList = () => {
                           <Edit className="w-4 h-4" />
                         </button>
 
+                        {/* Claim Customer (Assistant only, for unassigned customers) */}
+                        {isAssistant && !customer.assignedTo && (
+                          <button
+                            onClick={() => handleClaimCustomer(customer._id)}
+                            disabled={claimingCustomer === customer._id}
+                            className="text-purple-600 hover:text-purple-900 p-1 rounded disabled:opacity-50"
+                            title="Claim customer"
+                          >
+                            {claimingCustomer === customer._id ? (
+                              <Clock className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <UserPlus className="w-4 h-4" />
+                            )}
+                          </button>
+                        )}
+
                         {/* Assignment (Admin only) */}
                         {isAdmin && (
                           <button
                             onClick={() => openAssignModal(customer)}
                             className="text-purple-600 hover:text-purple-900 p-1 rounded"
-                            title="Assign customer"
+                            title="Manage assignment"
                           >
                             <UserPlus className="w-4 h-4" />
                           </button>
@@ -456,7 +601,7 @@ const CustomerList = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg max-w-md w-full p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Assign Customer: {selectedCustomer.fullName}
+              Manage Assignment: {selectedCustomer.fullName}
             </h3>
             
             <div className="space-y-4">
@@ -464,12 +609,19 @@ const CustomerList = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Current Assignment
                 </label>
-                <p className="text-sm text-gray-600">
-                  {selectedCustomer.assignedTo
-                    ? `${selectedCustomer.assignedTo.firstName} ${selectedCustomer.assignedTo.lastName}`
-                    : 'Unassigned'
-                  }
-                </p>
+                <div className="flex items-center">
+                  {selectedCustomer.assignedTo ? (
+                    <div className="flex items-center text-sm text-gray-900">
+                      <UserCheck className="w-4 h-4 mr-2 text-green-600" />
+                      {selectedCustomer.assignedTo.firstName} {selectedCustomer.assignedTo.lastName}
+                    </div>
+                  ) : (
+                    <div className="flex items-center text-sm text-gray-600">
+                      <UserX className="w-4 h-4 mr-2 text-red-600" />
+                      Unassigned
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -485,7 +637,7 @@ const CustomerList = () => {
                   disabled={assignmentLoading}
                 >
                   <option value="">Select an option...</option>
-                  <option value="">Unassign</option>
+                  <option value="">Unassign Customer</option>
                   {assistants.map((assistant) => (
                     <option key={assistant._id} value={assistant._id}>
                       {assistant.firstName} {assistant.lastName}
