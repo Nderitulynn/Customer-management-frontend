@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   Plus, 
@@ -6,188 +6,184 @@ import {
   Trash2, 
   MessageSquare, 
   UserPlus, 
-  Filter,
-  ChevronLeft,
-  ChevronRight,
   Users,
   AlertCircle,
-  CheckCircle,
   User,
   UserCheck,
   UserX,
-  Clock,
-  Star
+  Clock
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
-import { customerService } from '../../services/api';
-import { toast } from 'react-toastify';
 
-const CustomerList = () => {
-  const { user } = useAuth();
+const CustomerList = ({ user }) => {
+  // Simplified state management
   const [customers, setCustomers] = useState([]);
-  const [assistants, setAssistants] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('');
-  const [assignmentFilter, setAssignmentFilter] = useState(''); // New filter for assignment status
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCustomers, setTotalCustomers] = useState(0);
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [showAssignModal, setShowAssignModal] = useState(false);
-  const [assignmentLoading, setAssignmentLoading] = useState(false);
   const [claimingCustomer, setClaimingCustomer] = useState(null);
+  const [assigningCustomer, setAssigningCustomer] = useState(null);
 
+  // Role checks
   const isAdmin = user?.role === 'admin';
   const isAssistant = user?.role === 'assistant';
 
-  // Fetch customers with filters and pagination
-  const fetchCustomers = useCallback(async (page = 1, search = '', status = '', assignment = '') => {
-    try {
-      setLoading(true);
-      setError('');
-      
-      const params = {
-        page,
-        limit: 10,
-        search: search.trim(),
-        status: status || undefined,
-        assignmentStatus: assignment || undefined
-      };
-
-      const response = await customerService.getCustomers(params);
-      
-      if (response.success) {
-        setCustomers(response.data.customers);
-        setCurrentPage(response.data.currentPage);
-        setTotalPages(response.data.totalPages);
-        setTotalCustomers(response.data.totalCustomers);
-      } else {
-        setError(response.message || 'Failed to fetch customers');
-      }
-    } catch (err) {
-      console.error('Error fetching customers:', err);
-      setError('Failed to load customers. Please try again.');
-    } finally {
-      setLoading(false);
+  // Mock customer data
+  const mockCustomers = [
+    {
+      id: 1,
+      fullName: 'John Doe',
+      email: 'john@example.com',
+      phone: '+1234567890',
+      status: 'active',
+      assignedTo: null,
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: 2,
+      fullName: 'Jane Smith',
+      email: 'jane@example.com',
+      phone: '+1234567891',
+      status: 'pending',
+      assignedTo: { id: 1, name: 'Admin User' },
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: 3,
+      fullName: 'Bob Johnson',
+      email: 'bob@example.com',
+      phone: '+1234567892',
+      status: 'active',
+      assignedTo: { id: user?.id, name: user?.name },
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: 4,
+      fullName: 'Alice Brown',
+      email: 'alice@example.com',
+      phone: '+1234567893',
+      status: 'inactive',
+      assignedTo: null,
+      createdAt: new Date().toISOString()
     }
-  }, []);
+  ];
 
-  // Fetch assistants for assignment (admin only)
-  const fetchAssistants = useCallback(async () => {
-    if (!isAdmin) return;
-    
-    try {
-      const response = await customerService.getAssistants();
-      if (response.success) {
-        setAssistants(response.data);
-      }
-    } catch (err) {
-      console.error('Error fetching assistants:', err);
-    }
-  }, [isAdmin]);
+  // Mock assistants data (for admin assignment dropdown)
+  const mockAssistants = [
+    { id: 1, name: 'Admin User' },
+    { id: 2, name: 'Assistant One' },
+    { id: 3, name: 'Assistant Two' }
+  ];
 
-  // Initial data fetch
-  useEffect(() => {
-    fetchCustomers(1, searchTerm, selectedStatus, assignmentFilter);
-    fetchAssistants();
-  }, [fetchCustomers, fetchAssistants, searchTerm, selectedStatus, assignmentFilter]);
+  // Mock API functions
+  const mockApi = {
+    getCustomers: () => {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          let filteredCustomers = mockCustomers;
+          
+          // Filter based on user role
+          if (isAssistant) {
+            filteredCustomers = mockCustomers.filter(c => 
+              !c.assignedTo || c.assignedTo.id === user.id
+            );
+          }
+          
+          resolve({ success: true, data: filteredCustomers });
+        }, 500);
+      });
+    },
 
-  // Handle search with debounce
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (currentPage === 1) {
-        fetchCustomers(1, searchTerm, selectedStatus, assignmentFilter);
-      } else {
-        setCurrentPage(1);
-      }
-    }, 500);
+    assignCustomer: (customerId, assistantId) => {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const customerIndex = customers.findIndex(c => c.id === customerId);
+          if (customerIndex !== -1) {
+            const updatedCustomers = [...customers];
+            const assistant = mockAssistants.find(a => a.id === assistantId);
+            updatedCustomers[customerIndex] = {
+              ...updatedCustomers[customerIndex],
+              assignedTo: assistant ? { id: assistant.id, name: assistant.name } : null
+            };
+            setCustomers(updatedCustomers);
+          }
+          resolve({ success: true });
+        }, 800);
+      });
+    },
 
-    return () => clearTimeout(timeoutId);
-  }, [searchTerm, selectedStatus, assignmentFilter, fetchCustomers, currentPage]);
-
-  // Handle pagination
-  const handlePageChange = (page) => {
-    setCurrentPage(page);
-    fetchCustomers(page, searchTerm, selectedStatus, assignmentFilter);
-  };
-
-  // Handle customer assignment
-  const handleAssignCustomer = async (customerId, assistantId) => {
-    try {
-      setAssignmentLoading(true);
-      
-      const response = await customerService.assignCustomer(customerId, assistantId);
-      
-      if (response.success) {
-        toast.success(
-          assistantId 
-            ? 'Customer assigned successfully!' 
-            : 'Customer unassigned successfully!'
-        );
-        
-        // Refresh customer list
-        fetchCustomers(currentPage, searchTerm, selectedStatus, assignmentFilter);
-        setShowAssignModal(false);
-        setSelectedCustomer(null);
-      } else {
-        toast.error(response.message || 'Assignment failed');
-      }
-    } catch (err) {
-      console.error('Error assigning customer:', err);
-      toast.error('Failed to assign customer. Please try again.');
-    } finally {
-      setAssignmentLoading(false);
+    deleteCustomer: (customerId) => {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          setCustomers(prev => prev.filter(c => c.id !== customerId));
+          resolve({ success: true });
+        }, 500);
+      });
     }
   };
 
-  // Handle customer claim (for assistants)
+  // Fetch customers on component mount
+  useEffect(() => {
+    const fetchCustomers = async () => {
+      try {
+        setLoading(true);
+        const response = await mockApi.getCustomers();
+        if (response.success) {
+          setCustomers(response.data);
+        }
+      } catch (error) {
+        console.error('Error fetching customers:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCustomers();
+  }, [isAssistant, user.id]);
+
+  // Filter customers based on search term
+  const filteredCustomers = customers.filter(customer => 
+    customer.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.phone.includes(searchTerm)
+  );
+
+  // Handle customer claim (assistants only)
   const handleClaimCustomer = async (customerId) => {
     try {
       setClaimingCustomer(customerId);
-      
-      const response = await customerService.assignCustomer(customerId, user._id);
-      
-      if (response.success) {
-        toast.success('Customer claimed successfully!');
-        fetchCustomers(currentPage, searchTerm, selectedStatus, assignmentFilter);
-      } else {
-        toast.error(response.message || 'Failed to claim customer');
-      }
-    } catch (err) {
-      console.error('Error claiming customer:', err);
-      toast.error('Failed to claim customer. Please try again.');
+      await mockApi.assignCustomer(customerId, user.id);
+      alert('Customer claimed successfully!');
+    } catch (error) {
+      alert('Failed to claim customer');
     } finally {
       setClaimingCustomer(null);
     }
   };
 
-  // Handle customer deletion
+  // Handle customer assignment (admin only)
+  const handleAssignCustomer = async (customerId, assistantId) => {
+    try {
+      setAssigningCustomer(customerId);
+      await mockApi.assignCustomer(customerId, assistantId);
+      alert(assistantId ? 'Customer assigned successfully!' : 'Customer unassigned successfully!');
+    } catch (error) {
+      alert('Failed to assign customer');
+    } finally {
+      setAssigningCustomer(null);
+    }
+  };
+
+  // Handle customer deletion (admin only)
   const handleDeleteCustomer = async (customerId) => {
     if (!window.confirm('Are you sure you want to delete this customer?')) {
       return;
     }
 
     try {
-      const response = await customerService.deleteCustomer(customerId);
-      
-      if (response.success) {
-        toast.success('Customer deleted successfully!');
-        fetchCustomers(currentPage, searchTerm, selectedStatus, assignmentFilter);
-      } else {
-        toast.error(response.message || 'Failed to delete customer');
-      }
-    } catch (err) {
-      console.error('Error deleting customer:', err);
-      toast.error('Failed to delete customer. Please try again.');
+      await mockApi.deleteCustomer(customerId);
+      alert('Customer deleted successfully!');
+    } catch (error) {
+      alert('Failed to delete customer');
     }
-  };
-
-  // Open assignment modal
-  const openAssignModal = (customer) => {
-    setSelectedCustomer(customer);
-    setShowAssignModal(true);
   };
 
   // Get status badge color
@@ -200,24 +196,19 @@ const CustomerList = () => {
     }
   };
 
-  // Get assignment status badge
+  // Get assignment badge
   const getAssignmentBadge = (customer) => {
     if (customer.assignedTo) {
-      const isAssignedToCurrentUser = customer.assignedTo._id === user._id;
+      const isAssignedToCurrentUser = customer.assignedTo.id === user.id;
       return (
-        <div className="flex items-center">
-          <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${
-            isAssignedToCurrentUser 
-              ? 'bg-blue-100 text-blue-800' 
-              : 'bg-green-100 text-green-800'
-          }`}>
-            <UserCheck className="w-3 h-3 mr-1" />
-            {isAssignedToCurrentUser ? 'You' : 'Assigned'}
-          </span>
-          {isAssignedToCurrentUser && (
-            <Star className="w-4 h-4 text-yellow-500 ml-1" />
-          )}
-        </div>
+        <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${
+          isAssignedToCurrentUser 
+            ? 'bg-blue-100 text-blue-800' 
+            : 'bg-green-100 text-green-800'
+        }`}>
+          <UserCheck className="w-3 h-3 mr-1" />
+          {isAssignedToCurrentUser ? 'You' : 'Assigned'}
+        </span>
       );
     } else {
       return (
@@ -229,25 +220,13 @@ const CustomerList = () => {
     }
   };
 
-  // Format phone number
-  const formatPhoneNumber = (phone) => {
-    if (!phone) return '';
-    return phone.startsWith('+') ? phone : `+${phone}`;
-  };
+  // Get customer counts
+  const getTotalCustomers = () => customers.length;
+  const getMyCustomers = () => customers.filter(c => c.assignedTo?.id === user.id).length;
+  const getUnassignedCustomers = () => customers.filter(c => !c.assignedTo).length;
 
-  // Get filtered customer counts for display
-  const getFilteredCounts = () => {
-    // This would ideally come from the API, but for now we'll estimate
-    const assigned = customers.filter(c => c.assignedTo).length;
-    const unassigned = customers.filter(c => !c.assignedTo).length;
-    const myCustomers = customers.filter(c => c.assignedTo?._id === user._id).length;
-    
-    return { assigned, unassigned, myCustomers };
-  };
-
-  const counts = getFilteredCounts();
-
-  if (loading && customers.length === 0) {
+  // Loading state
+  if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -265,8 +244,8 @@ const CustomerList = () => {
           </h1>
           <p className="text-gray-600 mt-1">
             {isAdmin 
-              ? `Manage all customers and assignments (${totalCustomers} total)`
-              : `Manage your assigned customers (${counts.myCustomers} assigned to you)`
+              ? `Manage all customers and assignments (${getTotalCustomers()} total)`
+              : `Manage your assigned customers (${getMyCustomers()} assigned to you)`
             }
           </p>
         </div>
@@ -287,7 +266,7 @@ const CustomerList = () => {
             <Users className="w-5 h-5 text-blue-600 mr-2" />
             <div>
               <p className="text-sm font-medium text-gray-600">Total Customers</p>
-              <p className="text-2xl font-bold text-gray-900">{totalCustomers}</p>
+              <p className="text-2xl font-bold text-gray-900">{getTotalCustomers()}</p>
             </div>
           </div>
         </div>
@@ -300,7 +279,7 @@ const CustomerList = () => {
                 {isAdmin ? 'Assigned' : 'My Customers'}
               </p>
               <p className="text-2xl font-bold text-gray-900">
-                {isAdmin ? counts.assigned : counts.myCustomers}
+                {isAdmin ? getTotalCustomers() - getUnassignedCustomers() : getMyCustomers()}
               </p>
             </div>
           </div>
@@ -313,84 +292,36 @@ const CustomerList = () => {
               <p className="text-sm font-medium text-gray-600">
                 {isAdmin ? 'Unassigned' : 'Available'}
               </p>
-              <p className="text-2xl font-bold text-gray-900">{counts.unassigned}</p>
+              <p className="text-2xl font-bold text-gray-900">{getUnassignedCustomers()}</p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Search */}
       <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <div className="flex flex-col sm:flex-row gap-4">
-          {/* Search */}
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input
-              type="text"
-              placeholder="Search customers by name, email, or phone..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-
-          {/* Status Filter */}
-          <div className="relative">
-            <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="pl-10 pr-8 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white"
-            >
-              <option value="">All Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="pending">Pending</option>
-            </select>
-          </div>
-
-          {/* Assignment Filter */}
-          <div className="relative">
-            <UserCheck className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <select
-              value={assignmentFilter}
-              onChange={(e) => setAssignmentFilter(e.target.value)}
-              className="pl-10 pr-8 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white"
-            >
-              <option value="">All Assignments</option>
-              <option value="assigned">Assigned</option>
-              <option value="unassigned">Unassigned</option>
-              {isAssistant && <option value="mine">My Customers</option>}
-            </select>
-          </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+          <input
+            type="text"
+            placeholder="Search customers by name, email, or phone..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
         </div>
       </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center">
-          <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
-          <span className="text-red-800">{error}</span>
-        </div>
-      )}
-
       {/* Customer List */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          </div>
-        ) : customers.length === 0 ? (
+        {filteredCustomers.length === 0 ? (
           <div className="text-center py-12">
             <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
-              {searchTerm || selectedStatus || assignmentFilter ? 'No customers found' : 'No customers yet'}
+              {searchTerm ? 'No customers found' : 'No customers yet'}
             </h3>
             <p className="text-gray-600">
-              {searchTerm || selectedStatus || assignmentFilter
-                ? 'Try adjusting your search or filters' 
-                : 'Start by adding your first customer'
-              }
+              {searchTerm ? 'Try adjusting your search' : 'Start by adding your first customer'}
             </p>
           </div>
         ) : (
@@ -412,7 +343,7 @@ const CustomerList = () => {
                   </th>
                   {isAdmin && (
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Assigned To
+                      Assign To
                     </th>
                   )}
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -421,15 +352,15 @@ const CustomerList = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {customers.map((customer) => (
-                  <tr key={customer._id} className="hover:bg-gray-50">
+                {filteredCustomers.map((customer) => (
+                  <tr key={customer.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
                           {customer.fullName}
                         </div>
                         <div className="text-sm text-gray-500">
-                          ID: {customer._id.slice(-6)}
+                          ID: {customer.id}
                         </div>
                       </div>
                     </td>
@@ -438,7 +369,7 @@ const CustomerList = () => {
                         {customer.email}
                       </div>
                       <div className="text-sm text-gray-500">
-                        {formatPhoneNumber(customer.phone)}
+                        {customer.phone}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -451,13 +382,21 @@ const CustomerList = () => {
                     </td>
                     {isAdmin && (
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {customer.assignedTo ? (
-                          <div className="flex items-center text-sm text-gray-900">
-                            <User className="w-4 h-4 mr-2 text-gray-400" />
-                            {customer.assignedTo.firstName} {customer.assignedTo.lastName}
-                          </div>
-                        ) : (
-                          <span className="text-sm text-gray-500">Unassigned</span>
+                        <select
+                          value={customer.assignedTo?.id || ''}
+                          onChange={(e) => handleAssignCustomer(customer.id, e.target.value || null)}
+                          disabled={assigningCustomer === customer.id}
+                          className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                          <option value="">Unassigned</option>
+                          {mockAssistants.map((assistant) => (
+                            <option key={assistant.id} value={assistant.id}>
+                              {assistant.name}
+                            </option>
+                          ))}
+                        </select>
+                        {assigningCustomer === customer.id && (
+                          <Clock className="w-4 h-4 animate-spin text-blue-600 ml-2 inline" />
                         )}
                       </td>
                     )}
@@ -474,7 +413,7 @@ const CustomerList = () => {
 
                         {/* Edit Customer */}
                         <button
-                          onClick={() => window.location.href = `/customers/${customer._id}/edit`}
+                          onClick={() => window.location.href = `/customers/${customer.id}/edit`}
                           className="text-blue-600 hover:text-blue-900 p-1 rounded"
                           title="Edit customer"
                         >
@@ -484,12 +423,12 @@ const CustomerList = () => {
                         {/* Claim Customer (Assistant only, for unassigned customers) */}
                         {isAssistant && !customer.assignedTo && (
                           <button
-                            onClick={() => handleClaimCustomer(customer._id)}
-                            disabled={claimingCustomer === customer._id}
+                            onClick={() => handleClaimCustomer(customer.id)}
+                            disabled={claimingCustomer === customer.id}
                             className="text-purple-600 hover:text-purple-900 p-1 rounded disabled:opacity-50"
                             title="Claim customer"
                           >
-                            {claimingCustomer === customer._id ? (
+                            {claimingCustomer === customer.id ? (
                               <Clock className="w-4 h-4 animate-spin" />
                             ) : (
                               <UserPlus className="w-4 h-4" />
@@ -497,21 +436,10 @@ const CustomerList = () => {
                           </button>
                         )}
 
-                        {/* Assignment (Admin only) */}
-                        {isAdmin && (
-                          <button
-                            onClick={() => openAssignModal(customer)}
-                            className="text-purple-600 hover:text-purple-900 p-1 rounded"
-                            title="Manage assignment"
-                          >
-                            <UserPlus className="w-4 h-4" />
-                          </button>
-                        )}
-
                         {/* Delete (Admin only) */}
                         {isAdmin && (
                           <button
-                            onClick={() => handleDeleteCustomer(customer._id)}
+                            onClick={() => handleDeleteCustomer(customer.id)}
                             className="text-red-600 hover:text-red-900 p-1 rounded"
                             title="Delete customer"
                           >
@@ -526,148 +454,7 @@ const CustomerList = () => {
             </table>
           </div>
         )}
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
-            <div className="flex items-center justify-between">
-              <div className="flex-1 flex justify-between sm:hidden">
-                <button
-                  onClick={() => handlePageChange(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={() => handlePageChange(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                  className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
-              </div>
-              <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm text-gray-700">
-                    Showing page <span className="font-medium">{currentPage}</span> of{' '}
-                    <span className="font-medium">{totalPages}</span>
-                  </p>
-                </div>
-                <div>
-                  <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
-                    <button
-                      onClick={() => handlePageChange(currentPage - 1)}
-                      disabled={currentPage === 1}
-                      className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    
-                    {[...Array(totalPages)].map((_, i) => {
-                      const page = i + 1;
-                      return (
-                        <button
-                          key={page}
-                          onClick={() => handlePageChange(page)}
-                          className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                            currentPage === page
-                              ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
-                              : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
-                          }`}
-                        >
-                          {page}
-                        </button>
-                      );
-                    })}
-                    
-                    <button
-                      onClick={() => handlePageChange(currentPage + 1)}
-                      disabled={currentPage === totalPages}
-                      className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </nav>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
-
-      {/* Assignment Modal */}
-      {showAssignModal && selectedCustomer && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Manage Assignment: {selectedCustomer.fullName}
-            </h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Current Assignment
-                </label>
-                <div className="flex items-center">
-                  {selectedCustomer.assignedTo ? (
-                    <div className="flex items-center text-sm text-gray-900">
-                      <UserCheck className="w-4 h-4 mr-2 text-green-600" />
-                      {selectedCustomer.assignedTo.firstName} {selectedCustomer.assignedTo.lastName}
-                    </div>
-                  ) : (
-                    <div className="flex items-center text-sm text-gray-600">
-                      <UserX className="w-4 h-4 mr-2 text-red-600" />
-                      Unassigned
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Assign To
-                </label>
-                <select
-                  onChange={(e) => {
-                    const assistantId = e.target.value || null;
-                    handleAssignCustomer(selectedCustomer._id, assistantId);
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  disabled={assignmentLoading}
-                >
-                  <option value="">Select an option...</option>
-                  <option value="">Unassign Customer</option>
-                  {assistants.map((assistant) => (
-                    <option key={assistant._id} value={assistant._id}>
-                      {assistant.firstName} {assistant.lastName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-3 mt-6">
-              <button
-                onClick={() => {
-                  setShowAssignModal(false);
-                  setSelectedCustomer(null);
-                }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                disabled={assignmentLoading}
-              >
-                Cancel
-              </button>
-            </div>
-
-            {assignmentLoading && (
-              <div className="flex items-center justify-center mt-4">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };
