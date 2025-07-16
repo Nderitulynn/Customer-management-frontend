@@ -1,130 +1,52 @@
-import { apiHelpers as apiMethods, API_ENDPOINTS } from './api';
+import { apiHelpers, API_ENDPOINTS, handleApiError } from './api';
 
-// Permission constants for new workflow
-export const PERMISSIONS = {
-  // Customer claiming permissions
-  CUSTOMER_CLAIM: 'customer:claim',
-  CUSTOMER_CLAIM_ASSIGN: 'customer:claim:assign',
-  CUSTOMER_CLAIM_RELEASE: 'customer:claim:release',
-  CUSTOMER_CLAIM_TRANSFER: 'customer:claim:transfer',
-  CUSTOMER_CLAIM_VIEW_ALL: 'customer:claim:view_all',
-  CUSTOMER_CLAIM_MANAGE: 'customer:claim:manage',
-  
-  // Customer management permissions
-  CUSTOMER_VIEW: 'customer:view',
-  CUSTOMER_EDIT: 'customer:edit',
-  CUSTOMER_CREATE: 'customer:create',
-  CUSTOMER_DELETE: 'customer:delete',
-  CUSTOMER_BULK_ACTIONS: 'customer:bulk_actions',
-  
-  // Workflow permissions
-  WORKFLOW_MANAGE: 'workflow:manage',
-  WORKFLOW_ASSIGN: 'workflow:assign',
-  WORKFLOW_ESCALATE: 'workflow:escalate',
-  
-  // Admin permissions
-  ADMIN_PANEL: 'admin:panel',
-  USER_MANAGEMENT: 'user:management',
-  ROLE_MANAGEMENT: 'role:management',
-  PERMISSION_MANAGEMENT: 'permission:management',
-  
-  // Reporting permissions
-  REPORTS_VIEW: 'reports:view',
-  REPORTS_EXPORT: 'reports:export',
-  ANALYTICS_VIEW: 'analytics:view'
-};
-
-// Role constants
-export const ROLES = {
-  SUPER_ADMIN: 'super_admin',
-  ADMIN: 'admin',
-  MANAGER: 'manager',
-  SUPERVISOR: 'supervisor',
-  AGENT: 'agent',
-  READONLY: 'readonly'
-};
-
-// Feature flags based on roles
-export const FEATURE_FLAGS = {
-  CUSTOMER_CLAIMING: {
-    enabled: true,
-    requiredPermissions: [PERMISSIONS.CUSTOMER_CLAIM],
-    requiredRoles: [ROLES.AGENT, ROLES.SUPERVISOR, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN]
-  },
-  BULK_CUSTOMER_ACTIONS: {
-    enabled: true,
-    requiredPermissions: [PERMISSIONS.CUSTOMER_BULK_ACTIONS],
-    requiredRoles: [ROLES.SUPERVISOR, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN]
-  },
-  CUSTOMER_TRANSFER: {
-    enabled: true,
-    requiredPermissions: [PERMISSIONS.CUSTOMER_CLAIM_TRANSFER],
-    requiredRoles: [ROLES.SUPERVISOR, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN]
-  },
-  WORKFLOW_ESCALATION: {
-    enabled: true,
-    requiredPermissions: [PERMISSIONS.WORKFLOW_ESCALATE],
-    requiredRoles: [ROLES.AGENT, ROLES.SUPERVISOR, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN]
-  },
-  ADVANCED_ANALYTICS: {
-    enabled: true,
-    requiredPermissions: [PERMISSIONS.ANALYTICS_VIEW],
-    requiredRoles: [ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN]
-  }
-};
-
+/**
+ * Simplified Authentication Service for School Project
+ * Handles user authentication with role-based access (admin/assistant)
+ */
 class AuthService {
   constructor() {
     this.tokenKey = 'token';
-    this.refreshTokenKey = 'refreshToken';
     this.userKey = 'user';
     this.rememberMeKey = 'rememberMe';
-    this.sessionStateKey = 'sessionState';
-    this.lastActivityKey = 'lastActivity';
-    this.refreshAttemptKey = 'refreshAttempt';
-    this.userPermissionsKey = 'userPermissions';
-    this.claimedCustomersKey = 'claimedCustomers';
-    
-    // Session configuration
-    this.sessionConfig = {
-      maxInactiveTime: 30 * 60 * 1000, // 30 minutes
-      maxRefreshAttempts: 3,
-      refreshBuffer: 5 * 60 * 1000, // 5 minutes before expiry
-    };
   }
 
-  // Login user
+  /**
+   * Login user with email and password
+   * @param {Object} credentials - Login credentials
+   * @param {string} credentials.email - User email
+   * @param {string} credentials.password - User password
+   * @param {boolean} credentials.rememberMe - Remember user preference
+   * @returns {Promise<Object>} Login response with user data
+   */
   async login(credentials) {
     try {
       const { email, password, rememberMe = false } = credentials;
 
-      const response = await apiMethods.post(API_ENDPOINTS.AUTH.LOGIN, {
+      if (!email || !password) {
+        throw new Error('Email and password are required');
+      }
+
+      const response = await apiHelpers.post(API_ENDPOINTS.AUTH.LOGIN, {
         email: email.toLowerCase().trim(),
         password,
         rememberMe
       });
 
-      // FIX: Handle nested data structure from backend
-      // Backend returns: { success: true, data: { user, token } }
-      // Frontend needs: { user, token }
-      const { user, token, refreshToken, permissions, expiresIn } = response.data || response;
+      const { user, token } = response.data || response;
 
       if (!token || !user) {
-        throw new Error('Login failed: Missing token or user data');
+        throw new Error('Invalid credentials');
+      }
+
+      // Validate user role
+      if (!this.isValidRole(user.role)) {
+        throw new Error('Invalid user role');
       }
 
       // Store authentication data
       this.setToken(token);
       this.setUser(user);
-      
-      if (refreshToken) {
-        this.setRefreshToken(refreshToken);
-      }
-
-      // Store user permissions
-      if (permissions) {
-        this.setUserPermissions(permissions);
-      }
 
       // Store remember me preference
       if (rememberMe) {
@@ -133,423 +55,250 @@ class AuthService {
         localStorage.removeItem(this.rememberMeKey);
       }
 
-      // Initialize session state
-      this.initializeSessionState();
+      return {
+        success: true,
+        data: {
+          user,
+          token,
+          role: user.role
+        },
+        message: 'Login successful'
+      };
 
-      // Initialize claimed customers for agents
-      if (this.hasPermission(PERMISSIONS.CUSTOMER_CLAIM)) {
-        this.initializeClaimedCustomers();
+    } catch (error) {
+      this.clearAuthData();
+      return {
+        success: false,
+        message: handleApiError(error, 'Login failed'),
+        data: null
+      };
+    }
+  }
+
+  /**
+   * Logout current user
+   * @returns {Promise<Object>} Logout response
+   */
+  async logout() {
+    try {
+      // Call logout endpoint if available
+      if (this.getToken()) {
+        await apiHelpers.post(API_ENDPOINTS.AUTH.LOGOUT);
       }
 
       return {
         success: true,
-        user,
-        token,
-        refreshToken,
-        permissions,
-        expiresIn
+        message: 'Logout successful'
       };
 
     } catch (error) {
-      console.error('Login error:', error);
-      
-      // Clear any existing auth data on login failure
-      this.clearAuthData();
-      
-      throw new Error(error.message || 'Login failed');
-    }
-  }
-
-  // Logout user
-  async logout() {
-    try {
-      // Release all claimed customers before logout
-      if (this.hasPermission(PERMISSIONS.CUSTOMER_CLAIM)) {
-        await this.releaseAllClaimedCustomers();
-      }
-
-      // Call logout endpoint if available
-      if (this.getToken()) {
-        await apiMethods.post(API_ENDPOINTS.AUTH.LOGOUT);
-      }
-    } catch (error) {
-      console.error('Logout API error:', error);
+      return {
+        success: false,
+        message: handleApiError(error, 'Logout failed')
+      };
     } finally {
       // Always clear local auth data
       this.clearAuthData();
     }
   }
 
-  // Enhanced refresh token with improved error handling and validation
-  async refreshToken() {
+  /**
+   * Register new user
+   * @param {Object} userData - User registration data
+   * @param {string} userData.firstName - User first name
+   * @param {string} userData.lastName - User last name
+   * @param {string} userData.email - User email
+   * @param {string} userData.password - User password
+   * @param {string} userData.role - User role (admin/assistant)
+   * @returns {Promise<Object>} Registration response
+   */
+  async register(userData) {
     try {
-      const refreshToken = this.getRefreshToken();
+      // Basic validation
+      this.validateUserData(userData);
+
+      const response = await apiHelpers.post(API_ENDPOINTS.AUTH.REGISTER, userData);
+
+      const { user, token } = response.data || response;
+
+      if (token && user) {
+        this.setToken(token);
+        this.setUser(user);
+      }
+
+      return {
+        success: true,
+        data: {
+          user,
+          token,
+          role: user.role
+        },
+        message: 'Registration successful'
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: handleApiError(error, 'Registration failed'),
+        data: null
+      };
+    }
+  }
+
+  /**
+   * Verify current token validity
+   * @returns {Promise<Object>} Token verification response
+   */
+  async verifyToken() {
+    try {
+      const token = this.getToken();
       
-      if (!refreshToken) {
-        throw new Error('No refresh token available');
-      }
-
-      // Check refresh attempt count to prevent infinite loops
-      const attemptCount = this.getRefreshAttemptCount();
-      if (attemptCount >= this.sessionConfig.maxRefreshAttempts) {
-        throw new Error('Maximum refresh attempts exceeded');
-      }
-
-      // Validate refresh token format and expiration
-      if (!this.isValidRefreshToken(refreshToken)) {
-        throw new Error('Invalid refresh token format or expired');
-      }
-
-      // Increment attempt count
-      this.incrementRefreshAttempt();
-
-      const response = await apiMethods.post(API_ENDPOINTS.AUTH.REFRESH, {
-        refreshToken
-      });
-
-      const { token, refreshToken: newRefreshToken, expiresIn, permissions } = response.data || response;
-
       if (!token) {
-        throw new Error('Token refresh failed: No token received');
+        throw new Error('No token found');
       }
 
-      // Update tokens
-      this.setToken(token);
-      if (newRefreshToken) {
-        this.setRefreshToken(newRefreshToken);
+      const response = await apiHelpers.get(API_ENDPOINTS.AUTH.VERIFY);
+
+      const { user, valid } = response.data || response;
+
+      if (valid && user) {
+        this.setUser(user);
+        return {
+          success: true,
+          data: {
+            user,
+            valid: true,
+            role: user.role
+          }
+        };
       }
 
-      // Update permissions if provided
-      if (permissions) {
-        this.setUserPermissions(permissions);
+      throw new Error('Invalid token');
+
+    } catch (error) {
+      this.clearAuthData();
+      return {
+        success: false,
+        message: handleApiError(error, 'Token verification failed'),
+        data: null
+      };
+    }
+  }
+
+  /**
+   * Change user password
+   * @param {Object} passwordData - Password change data
+   * @param {string} passwordData.currentPassword - Current password
+   * @param {string} passwordData.newPassword - New password
+   * @returns {Promise<Object>} Password change response
+   */
+  async changePassword(passwordData) {
+    try {
+      const { currentPassword, newPassword } = passwordData;
+
+      if (!currentPassword || !newPassword) {
+        throw new Error('Current password and new password are required');
       }
 
-      // Reset refresh attempt count on success
-      this.resetRefreshAttempt();
+      if (newPassword.length < 6) {
+        throw new Error('New password must be at least 6 characters long');
+      }
 
-      // Update session state
-      this.updateSessionState({
-        lastRefresh: new Date().toISOString(),
-        tokenExpiresAt: expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null
+      const response = await apiHelpers.post(API_ENDPOINTS.AUTH.CHANGE_PASSWORD, {
+        currentPassword,
+        newPassword
       });
 
       return {
         success: true,
-        token,
-        refreshToken: newRefreshToken,
-        expiresIn,
-        permissions
+        message: 'Password changed successfully'
       };
 
     } catch (error) {
-      console.error('Token refresh error:', error);
-      
-      // Handle specific error cases
-      if (error.message.includes('refresh token') || error.message.includes('expired')) {
-        this.clearAuthData();
-        throw new Error('Session expired. Please log in again.');
-      }
-
-      if (error.message.includes('Maximum refresh attempts')) {
-        this.clearAuthData();
-        throw new Error('Too many refresh attempts. Please log in again.');
-      }
-
-      // For network errors, don't clear auth data immediately
-      if (error.name === 'NetworkError' || error.message.includes('network')) {
-        throw new Error('Network error during token refresh. Please try again.');
-      }
-
-      // For other errors, clear auth data
-      this.clearAuthData();
-      throw error;
+      return {
+        success: false,
+        message: handleApiError(error, 'Password change failed')
+      };
     }
   }
 
-  // Enhanced token refresh validation
-  isValidRefreshToken(refreshToken = null) {
-    const token = refreshToken || this.getRefreshToken();
-    
-    if (!token) return false;
-
+  /**
+   * Request password reset
+   * @param {string} email - User email
+   * @returns {Promise<Object>} Password reset response
+   */
+  async forgotPassword(email) {
     try {
-      // For JWT refresh tokens, check structure and expiration
-      if (token.includes('.')) {
-        const parts = token.split('.');
-        if (parts.length !== 3) return false;
-
-        const payload = JSON.parse(atob(parts[1]));
-        const currentTime = Date.now() / 1000;
-        
-        // Check if refresh token is expired
-        if (payload.exp && payload.exp < currentTime) {
-          return false;
-        }
-
-        // Check if it's actually a refresh token
-        if (payload.type && payload.type !== 'refresh') {
-          return false;
-        }
+      if (!email) {
+        throw new Error('Email is required');
       }
 
-      return true;
-    } catch (error) {
-      console.error('Error validating refresh token:', error);
-      return false;
-    }
-  }
-
-  // Session state tracking methods
-  initializeSessionState() {
-    const sessionState = {
-      loginTime: new Date().toISOString(),
-      lastActivity: new Date().toISOString(),
-      refreshAttempts: 0,
-      isActive: true,
-      deviceInfo: this.getDeviceInfo(),
-      claimedCustomersCount: 0,
-      lastClaimActivity: null
-    };
-
-    localStorage.setItem(this.sessionStateKey, JSON.stringify(sessionState));
-    localStorage.setItem(this.lastActivityKey, new Date().toISOString());
-  }
-
-  updateSessionState(updates) {
-    const currentState = this.getSessionState();
-    const newState = {
-      ...currentState,
-      ...updates,
-      lastActivity: new Date().toISOString()
-    };
-
-    localStorage.setItem(this.sessionStateKey, JSON.stringify(newState));
-    localStorage.setItem(this.lastActivityKey, new Date().toISOString());
-  }
-
-  getSessionState() {
-    const stateJson = localStorage.getItem(this.sessionStateKey);
-    return stateJson ? JSON.parse(stateJson) : null;
-  }
-
-  isSessionActive() {
-    const sessionState = this.getSessionState();
-    if (!sessionState) return false;
-
-    const lastActivity = new Date(sessionState.lastActivity);
-    const now = new Date();
-    const timeSinceLastActivity = now - lastActivity;
-
-    return timeSinceLastActivity < this.sessionConfig.maxInactiveTime;
-  }
-
-  getSessionDuration() {
-    const sessionState = this.getSessionState();
-    if (!sessionState) return 0;
-
-    const loginTime = new Date(sessionState.loginTime);
-    const now = new Date();
-    return now - loginTime;
-  }
-
-  getTimeSinceLastActivity() {
-    const lastActivity = localStorage.getItem(this.lastActivityKey);
-    if (!lastActivity) return 0;
-
-    const lastActivityTime = new Date(lastActivity);
-    const now = new Date();
-    return now - lastActivityTime;
-  }
-
-  recordActivity() {
-    this.updateSessionState({
-      lastActivity: new Date().toISOString()
-    });
-  }
-
-  // Refresh attempt tracking
-  getRefreshAttemptCount() {
-    const attempts = localStorage.getItem(this.refreshAttemptKey);
-    return attempts ? parseInt(attempts, 10) : 0;
-  }
-
-  incrementRefreshAttempt() {
-    const currentCount = this.getRefreshAttemptCount();
-    localStorage.setItem(this.refreshAttemptKey, (currentCount + 1).toString());
-  }
-
-  resetRefreshAttempt() {
-    localStorage.removeItem(this.refreshAttemptKey);
-  }
-
-  // Device info for session tracking
-  getDeviceInfo() {
-    return {
-      userAgent: navigator.userAgent,
-      platform: navigator.platform,
-      language: navigator.language,
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  // Enhanced initialization method
-  async initializeAuth() {
-    try {
-      // Check if we have a token
-      if (!this.isAuthenticated()) {
-        return { authenticated: false, reason: 'No token found' };
-      }
-
-      // Check session activity
-      if (!this.isSessionActive()) {
-        this.clearAuthData();
-        return { authenticated: false, reason: 'Session expired due to inactivity' };
-      }
-
-      // Check if token needs refresh soon
-      if (this.shouldRefreshToken()) {
-        try {
-          await this.refreshToken();
-        } catch (error) {
-          return { authenticated: false, reason: 'Token refresh failed', error: error.message };
-        }
-      }
-
-      // Verify token with backend
-      const verificationResult = await this.verifyToken();
-      
-      if (verificationResult.success) {
-        this.recordActivity();
-        
-        // Initialize claimed customers for agents
-        if (this.hasPermission(PERMISSIONS.CUSTOMER_CLAIM)) {
-          this.initializeClaimedCustomers();
-        }
-        
-        return { 
-          authenticated: true, 
-          user: this.getUser(),
-          sessionState: this.getSessionState(),
-          permissions: this.getUserPermissions(),
-          claimedCustomers: this.getClaimedCustomers()
-        };
-      }
-
-      // Token verification failed, try to refresh
-      if (this.getRefreshToken()) {
-        try {
-          await this.refreshToken();
-          this.recordActivity();
-          return { 
-            authenticated: true, 
-            user: this.getUser(),
-            sessionState: this.getSessionState(),
-            permissions: this.getUserPermissions(),
-            claimedCustomers: this.getClaimedCustomers()
-          };
-        } catch (error) {
-          // Refresh failed, clear auth data
-          this.clearAuthData();
-          return { authenticated: false, reason: 'Token refresh failed', error: error.message };
-        }
-      }
-
-      // No refresh token available, clear auth data
-      this.clearAuthData();
-      return { authenticated: false, reason: 'No refresh token available' };
-
-    } catch (error) {
-      console.error('Auth initialization error:', error);
-      this.clearAuthData();
-      return { authenticated: false, reason: 'Initialization error', error: error.message };
-    }
-  }
-
-  // Check if token should be refreshed proactively
-  shouldRefreshToken() {
-    const token = this.getToken();
-    if (!token) return false;
-
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      const currentTime = Date.now() / 1000;
-      const timeUntilExpiry = payload.exp - currentTime;
-      const bufferTime = this.sessionConfig.refreshBuffer / 1000;
-
-      return timeUntilExpiry < bufferTime;
-    } catch (error) {
-      console.error('Error checking token expiry:', error);
-      return false;
-    }
-  }
-
-  // Verify token - existing method with minor enhancements
-  async verifyToken(token = null) {
-    try {
-      // Use provided token or get from storage
-      const tokenToVerify = token || this.getToken();
-      
-      if (!tokenToVerify) {
-        return {
-          success: false,
-          error: 'No token provided'
-        };
-      }
-
-      // Check if token is expired locally first (for JWT tokens)
-      if (this.isTokenExpired()) {
-        return {
-          success: false,
-          error: 'Token expired'
-        };
-      }
-
-      // Verify token with backend
-      const response = await apiMethods.get(API_ENDPOINTS.AUTH.VERIFY, {
-        headers: {
-          'Authorization': `Bearer ${tokenToVerify}`
-        }
+      const response = await apiHelpers.post(API_ENDPOINTS.AUTH.FORGOT_PASSWORD, {
+        email: email.toLowerCase().trim()
       });
 
-      // Handle response data structure
-      const { user, valid, permissions } = response.data || response;
-
-      if (valid !== false && user) {
-        // Update user data and permissions if provided
-        this.setUser(user);
-        if (permissions) {
-          this.setUserPermissions(permissions);
-        }
-        this.recordActivity();
-        
-        return {
-          success: true,
-          user,
-          valid: true,
-          permissions
-        };
-      }
-
       return {
-        success: false,
-        error: 'Invalid token'
+        success: true,
+        message: 'Password reset instructions sent to your email'
       };
 
     } catch (error) {
-      console.error('Token verification failed:', error);
       return {
         success: false,
-        error: error.message || 'Token verification failed'
+        message: handleApiError(error, 'Password reset request failed')
       };
     }
   }
 
-  // Get current token
+  /**
+   * Reset password with token
+   * @param {Object} resetData - Password reset data
+   * @param {string} resetData.token - Reset token
+   * @param {string} resetData.password - New password
+   * @returns {Promise<Object>} Password reset response
+   */
+  async resetPassword(resetData) {
+    try {
+      const { token, password } = resetData;
+
+      if (!token || !password) {
+        throw new Error('Reset token and new password are required');
+      }
+
+      if (password.length < 6) {
+        throw new Error('Password must be at least 6 characters long');
+      }
+
+      const response = await apiHelpers.post(API_ENDPOINTS.AUTH.RESET_PASSWORD, {
+        token,
+        password
+      });
+
+      return {
+        success: true,
+        message: 'Password reset successful'
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: handleApiError(error, 'Password reset failed')
+      };
+    }
+  }
+
+  /**
+   * Get current authentication token
+   * @returns {string|null} Current token
+   */
   getToken() {
     return localStorage.getItem(this.tokenKey);
   }
 
-  // Set token
+  /**
+   * Set authentication token
+   * @param {string} token - Token to store
+   */
   setToken(token) {
     if (token) {
       localStorage.setItem(this.tokenKey, token);
@@ -558,27 +307,19 @@ class AuthService {
     }
   }
 
-  // Get refresh token
-  getRefreshToken() {
-    return localStorage.getItem(this.refreshTokenKey);
-  }
-
-  // Set refresh token
-  setRefreshToken(refreshToken) {
-    if (refreshToken) {
-      localStorage.setItem(this.refreshTokenKey, refreshToken);
-    } else {
-      localStorage.removeItem(this.refreshTokenKey);
-    }
-  }
-
-  // Get current user
+  /**
+   * Get current user data
+   * @returns {Object|null} Current user
+   */
   getUser() {
     const userJson = localStorage.getItem(this.userKey);
     return userJson ? JSON.parse(userJson) : null;
   }
 
-  // Set user
+  /**
+   * Set user data
+   * @param {Object} user - User data to store
+   */
   setUser(user) {
     if (user) {
       localStorage.setItem(this.userKey, JSON.stringify(user));
@@ -587,211 +328,131 @@ class AuthService {
     }
   }
 
-  // User permissions management
-  getUserPermissions() {
-    const permissionsJson = localStorage.getItem(this.userPermissionsKey);
-    return permissionsJson ? JSON.parse(permissionsJson) : [];
+  /**
+   * Get remember me preference
+   * @returns {boolean} Remember me status
+   */
+  getRememberMe() {
+    return localStorage.getItem(this.rememberMeKey) === 'true';
   }
 
-  setUserPermissions(permissions) {
-    if (permissions && Array.isArray(permissions)) {
-      localStorage.setItem(this.userPermissionsKey, JSON.stringify(permissions));
-    } else {
-      localStorage.removeItem(this.userPermissionsKey);
-    }
-  }
-
-  // Check if user is authenticated
+  /**
+   * Check if user is authenticated
+   * @returns {boolean} Authentication status
+   */
   isAuthenticated() {
     const token = this.getToken();
     const user = this.getUser();
     return !!(token && user);
   }
 
-  // Check if user has specific role
+  /**
+   * Check if user is admin
+   * @returns {boolean} Admin status
+   */
+  isAdmin() {
+    const user = this.getUser();
+    return user && user.role === 'admin';
+  }
+
+  /**
+   * Check if user is assistant
+   * @returns {boolean} Assistant status
+   */
+  isAssistant() {
+    const user = this.getUser();
+    return user && user.role === 'assistant';
+  }
+
+  /**
+   * Check if user has specific role
+   * @param {string} role - Role to check (admin/assistant)
+   * @returns {boolean} Role check result
+   */
   hasRole(role) {
     const user = this.getUser();
-    return user && user.roles && user.roles.includes(role);
+    return user && user.role === role;
   }
 
-  // Check if user has any of the specified roles
-  hasAnyRole(roles) {
-    const user = this.getUser();
-    if (!user || !user.roles) return false;
-    return roles.some(role => user.roles.includes(role));
-  }
-
-  // Check if user has all of the specified roles
-  hasAllRoles(roles) {
-    const user = this.getUser();
-    if (!user || !user.roles) return false;
-    return roles.every(role => user.roles.includes(role));
-  }
-
-  // Enhanced permission checking
-  hasPermission(permission) {
-    const user = this.getUser();
-    const permissions = this.getUserPermissions();
-    
-    // Check user permissions from both user object and stored permissions
-    const userPermissions = user?.permissions || [];
-    const allPermissions = [...userPermissions, ...permissions];
-    
-    return allPermissions.includes(permission);
-  }
-
-  // Check if user has any of the specified permissions
-  hasAnyPermission(permissions) {
-    return permissions.some(permission => this.hasPermission(permission));
-  }
-
-  // Check if user has all of the specified permissions
-  hasAllPermissions(permissions) {
-    return permissions.every(permission => this.hasPermission(permission));
-  }
-
-  // Check if user is admin
-  isAdmin() {
-    return this.hasRole(ROLES.ADMIN) || this.hasRole(ROLES.SUPER_ADMIN);
-  }
-
-  // Check if user is supervisor or higher
-  isSupervisorOrHigher() {
-    return this.hasAnyRole([ROLES.SUPERVISOR, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN]);
-  }
-
-  // Check if user is manager or higher
-  isManagerOrHigher() {
-    return this.hasAnyRole([ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN]);
-  }
-
-  // Feature flag checking
-  isFeatureEnabled(featureName) {
-    const feature = FEATURE_FLAGS[featureName];
-    if (!feature || !feature.enabled) return false;
-
-    // Check if user has required permissions
-    if (feature.requiredPermissions && !this.hasAllPermissions(feature.requiredPermissions)) {
+  /**
+   * Check if user can edit customer
+   * @param {Object} customer - Customer object
+   * @returns {boolean} Edit permission status
+   */
+  canEditCustomer(customer) {
+    if (!this.isAuthenticated()) {
       return false;
     }
 
-    // Check if user has required roles
-    if (feature.requiredRoles && !this.hasAnyRole(feature.requiredRoles)) {
-      return false;
+    const user = this.getUser();
+    
+    // Admin can edit all customers
+    if (user.role === 'admin') {
+      return true;
     }
-
-    return true;
-  }
-
-  // Customer claiming functionality
-  initializeClaimedCustomers() {
-    const existing = localStorage.getItem(this.claimedCustomersKey);
-    if (!existing) {
-      localStorage.setItem(this.claimedCustomersKey, JSON.stringify([]));
+    
+    // Assistant can only edit assigned customers
+    if (user.role === 'assistant') {
+      return customer.assignedTo && customer.assignedTo._id === user._id;
     }
+    
+    return false;
   }
 
-  getClaimedCustomers() {
-    const claimedJson = localStorage.getItem(this.claimedCustomersKey);
-    return claimedJson ? JSON.parse(claimedJson) : [];
+  /**
+   * Check if user can delete customer
+   * @returns {boolean} Delete permission status
+   */
+  canDeleteCustomer() {
+    return this.isAdmin();
   }
 
-  setClaimedCustomers(customers) {
-    localStorage.setItem(this.claimedCustomersKey, JSON.stringify(customers));
-    this.updateSessionState({
-      claimedCustomersCount: customers.length,
-      lastClaimActivity: new Date().toISOString()
-    });
+  /**
+   * Check if user can assign customers
+   * @returns {boolean} Assignment permission status
+   */
+  canAssignCustomer() {
+    return this.isAdmin();
   }
 
-  addClaimedCustomer(customerId) {
-    if (!this.hasPermission(PERMISSIONS.CUSTOMER_CLAIM)) {
-      throw new Error('Insufficient permissions to claim customers');
-    }
-
-    const claimed = this.getClaimedCustomers();
-    if (!claimed.includes(customerId)) {
-      claimed.push(customerId);
-      this.setClaimedCustomers(claimed);
-    }
+  /**
+   * Check if user can create customers
+   * @returns {boolean} Creation permission status
+   */
+  canCreateCustomer() {
+    return this.isAuthenticated();
   }
 
-  removeClaimedCustomer(customerId) {
-    if (!this.hasPermission(PERMISSIONS.CUSTOMER_CLAIM_RELEASE)) {
-      throw new Error('Insufficient permissions to release customers');
-    }
-
-    const claimed = this.getClaimedCustomers();
-    const updated = claimed.filter(id => id !== customerId);
-    this.setClaimedCustomers(updated);
+  /**
+   * Check if user can view all customers
+   * @returns {boolean} View all permission status
+   */
+  canViewAllCustomers() {
+    return this.isAdmin();
   }
 
-  isCustomerClaimed(customerId) {
-    const claimed = this.getClaimedCustomers();
-    return claimed.includes(customerId);
+  /**
+   * Get authorization header for API requests
+   * @returns {Object} Authorization header object
+   */
+  getAuthHeader() {
+    const token = this.getToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
-  canClaimCustomer() {
-    return this.hasPermission(PERMISSIONS.CUSTOMER_CLAIM);
-  }
-
-  canReleaseCustomer() {
-    return this.hasPermission(PERMISSIONS.CUSTOMER_CLAIM_RELEASE);
-  }
-
-  canTransferCustomer() {
-    return this.hasPermission(PERMISSIONS.CUSTOMER_CLAIM_TRANSFER);
-  }
-
-  canManageCustomerClaims() {
-    return this.hasPermission(PERMISSIONS.CUSTOMER_CLAIM_MANAGE);
-  }
-
-  canViewAllCustomerClaims() {
-    return this.hasPermission(PERMISSIONS.CUSTOMER_CLAIM_VIEW_ALL);
-  }
-
-  async releaseAllClaimedCustomers() {
-    if (!this.hasPermission(PERMISSIONS.CUSTOMER_CLAIM_RELEASE)) {
-      return;
-    }
-
-    try {
-      const claimed = this.getClaimedCustomers();
-      if (claimed.length > 0) {
-        // Call API to release all claimed customers
-        await apiMethods.post(API_ENDPOINTS.CUSTOMERS.RELEASE_ALL, {
-          customerIds: claimed
-        });
-      }
-      
-      // Clear local claimed customers
-      this.setClaimedCustomers([]);
-    } catch (error) {
-      console.error('Error releasing claimed customers:', error);
-    }
-  }
-
-  // Get remember me preference
-  getRememberMe() {
-    return localStorage.getItem(this.rememberMeKey) === 'true';
-  }
-
-  // Enhanced clear auth data method
+  /**
+   * Clear all authentication data
+   */
   clearAuthData() {
     localStorage.removeItem(this.tokenKey);
-    localStorage.removeItem(this.refreshTokenKey);
     localStorage.removeItem(this.userKey);
-    localStorage.removeItem(this.userPermissionsKey);
-    localStorage.removeItem(this.claimedCustomersKey);
     localStorage.removeItem(this.rememberMeKey);
-    localStorage.removeItem('loginTime');
-    localStorage.removeItem(this.sessionStateKey);
-    localStorage.removeItem(this.lastActivityKey);
-    localStorage.removeItem(this.refreshAttemptKey);
   }
 
-  // Check if token is expired (if JWT)
+  /**
+   * Check if token is expired (for JWT tokens)
+   * @returns {boolean} Token expiration status
+   */
   isTokenExpired() {
     const token = this.getToken();
     if (!token) return true;
@@ -802,401 +463,231 @@ class AuthService {
       const currentTime = Date.now() / 1000;
       return payload.exp < currentTime;
     } catch (error) {
-      console.error('Error checking token expiration:', error);
+      // If token is not JWT or malformed, consider it expired
       return true;
     }
   }
 
-  // Get authorization header for API requests
-  getAuthHeader() {
-    const token = this.getToken();
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  }
-
-  // Register new user
-  async register(userData) {
+  /**
+   * Initialize authentication state
+   * @returns {Promise<Object>} Initialization result
+   */
+  async initializeAuth() {
     try {
-      const response = await apiMethods.post(API_ENDPOINTS.AUTH.REGISTER, userData);
-      
-      // Handle nested data structure similar to login
-      const { user, token, refreshToken, permissions } = response.data || response;
-
-      if (token && user) {
-        this.setToken(token);
-        this.setUser(user);
-        if (refreshToken) {
-          this.setRefreshToken(refreshToken);
-        }
-        if (permissions) {
-          this.setUserPermissions(permissions);
-        }
-        this.initializeSessionState();
-        
-        // Initialize claimed customers for agents
-        if (this.hasPermission(PERMISSIONS.CUSTOMER_CLAIM)) {
-          this.initializeClaimedCustomers();
-        }
+      // Check if we have a token
+      if (!this.isAuthenticated()) {
+        return {
+          success: false,
+          message: 'No authentication data found'
+        };
       }
 
-      return response;
+      // Check if token is expired
+      if (this.isTokenExpired()) {
+        this.clearAuthData();
+        return {
+          success: false,
+          message: 'Token expired'
+        };
+      }
+
+      // Verify token with backend
+      const verificationResult = await this.verifyToken();
+      
+      if (verificationResult.success) {
+        return {
+          success: true,
+          data: {
+            user: this.getUser(),
+            role: this.getUser().role
+          },
+          message: 'Authentication initialized successfully'
+        };
+      }
+
+      return verificationResult;
+
     } catch (error) {
-      console.error('Registration error:', error);
-      throw error;
-    }
-  }
-
-  // Forgot password
-  async forgotPassword(email) {
-    try {
-      const response = await apiMethods.post(API_ENDPOINTS.AUTH.FORGOT_PASSWORD, {
-        email: email.toLowerCase().trim()
-      });
-      return response;
-    } catch (error) {
-      console.error('Forgot password error:', error);
-      throw error;
-    }
-  }
-
-  // Reset password
-  async resetPassword(token, password) {
-    try {
-      const response = await apiMethods.post(API_ENDPOINTS.AUTH.RESET_PASSWORD, {
-        token,
-        password
-      });
-      return response;
-    } catch (error) {
-      console.error('Reset password error:', error);
-      throw error;
-    }
-  }
-
-  // Change password
-  async changePassword(currentPassword, newPassword) {
-    try {
-      const response = await apiMethods.post(API_ENDPOINTS.AUTH.CHANGE_PASSWORD, {
-        currentPassword,
-        newPassword
-      });
-      return response;
-    } catch (error) {
-      console.error('Change password error:', error);
-      throw error;
-    }
-  }
-
-  // Verify email
-  async verifyEmail(token) {
-    try {
-      const response = await apiMethods.post(API_ENDPOINTS.AUTH.VERIFY_EMAIL, {
-        token
-      });
-      return response;
-    } catch (error) {
-      console.error('Email verification error:', error);
-      throw error;
-    }
-  }
-
-  // Get user role hierarchy level (for comparison)
-  getUserRoleLevel() {
-    const user = this.getUser();
-    if (!user || !user.roles) return 0;
-
-    const roleLevels = {
-      [ROLES.READONLY]: 1,
-      [ROLES.AGENT]: 2,
-      [ROLES.SUPERVISOR]: 3,
-      [ROLES.MANAGER]: 4,
-      [ROLES.ADMIN]: 5,
-      [ROLES.SUPER_ADMIN]: 6
-    };
-
-    return Math.max(...user.roles.map(role => roleLevels[role] || 0));
-  }
-
-  // Check if user can perform action on target user
-  canManageUser(targetUser) {
-    if (!targetUser) return false;
-    
-    const currentUserLevel = this.getUserRoleLevel();
-    const targetUserLevel = Math.max(...(targetUser.roles || []).map(role => {
-      const roleLevels = {
-        [ROLES.READONLY]: 1,
-        [ROLES.AGENT]: 2,
-        [ROLES.SUPERVISOR]: 3,
-        [ROLES.MANAGER]: 4,
-        [ROLES.ADMIN]: 5,
-        [ROLES.SUPER_ADMIN]: 6
+      this.clearAuthData();
+      return {
+        success: false,
+        message: handleApiError(error, 'Authentication initialization failed')
       };
-      return roleLevels[role] || 0;
-    }));
-
-    return currentUserLevel > targetUserLevel;
+    }
   }
 
-  // Get current user's capabilities
-  getUserCapabilities() {
+  /**
+   * Validate user data for registration
+   * @param {Object} userData - User data to validate
+   * @throws {Error} Validation error
+   */
+  validateUserData(userData) {
+    const errors = [];
+
+    // Required fields
+    if (!userData.firstName || userData.firstName.trim() === '') {
+      errors.push('First name is required');
+    }
+
+    if (!userData.lastName || userData.lastName.trim() === '') {
+      errors.push('Last name is required');
+    }
+
+    if (!userData.email || userData.email.trim() === '') {
+      errors.push('Email is required');
+    }
+
+    if (!userData.password || userData.password.trim() === '') {
+      errors.push('Password is required');
+    }
+
+    if (!userData.role || userData.role.trim() === '') {
+      errors.push('Role is required');
+    }
+
+    // Email validation
+    if (userData.email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(userData.email)) {
+        errors.push('Invalid email format');
+      }
+    }
+
+    // Password validation
+    if (userData.password && userData.password.length < 6) {
+      errors.push('Password must be at least 6 characters long');
+    }
+
+    // Role validation
+    if (userData.role && !this.isValidRole(userData.role)) {
+      errors.push('Role must be either admin or assistant');
+    }
+
+    // Name length validation
+    if (userData.firstName && userData.firstName.length > 50) {
+      errors.push('First name must be less than 50 characters');
+    }
+
+    if (userData.lastName && userData.lastName.length > 50) {
+      errors.push('Last name must be less than 50 characters');
+    }
+
+    if (errors.length > 0) {
+      throw new Error(errors.join(', '));
+    }
+  }
+
+  /**
+   * Check if role is valid
+   * @param {string} role - Role to validate
+   * @returns {boolean} Validation result
+   */
+  isValidRole(role) {
+    const validRoles = ['admin', 'assistant'];
+    return validRoles.includes(role);
+  }
+
+  /**
+   * Get user full name
+   * @returns {string} User full name
+   */
+  getUserFullName() {
     const user = this.getUser();
-    const permissions = this.getUserPermissions();
-    const roles = user?.roles || [];
-
-    return {
-      canClaimCustomers: this.canClaimCustomer(),
-      canReleaseCustomers: this.canReleaseCustomer(),
-      canTransferCustomers: this.canTransferCustomer(),
-      canManageCustomerClaims: this.canManageCustomerClaims(),
-      canViewAllCustomerClaims: this.canViewAllCustomerClaims(),
-      canBulkActions: this.hasPermission(PERMISSIONS.CUSTOMER_BULK_ACTIONS),
-      canEscalateWorkflow: this.hasPermission(PERMISSIONS.WORKFLOW_ESCALATE),
-      canManageWorkflow: this.hasPermission(PERMISSIONS.WORKFLOW_MANAGE),
-      canViewReports: this.hasPermission(PERMISSIONS.REPORTS_VIEW),
-      canExportReports: this.hasPermission(PERMISSIONS.REPORTS_EXPORT),
-      canViewAnalytics: this.hasPermission(PERMISSIONS.ANALYTICS_VIEW),
-      canAccessAdminPanel: this.hasPermission(PERMISSIONS.ADMIN_PANEL),
-      canManageUsers: this.hasPermission(PERMISSIONS.USER_MANAGEMENT),
-      canManageRoles: this.hasPermission(PERMISSIONS.ROLE_MANAGEMENT),
-      canManagePermissions: this.hasPermission(PERMISSIONS.PERMISSION_MANAGEMENT),
-      isAdmin: this.isAdmin(),
-      isSupervisorOrHigher: this.isSupervisorOrHigher(),
-      isManagerOrHigher: this.isManagerOrHigher(),
-      userRoleLevel: this.getUserRoleLevel(),
-      roles,
-      permissions,
-      claimedCustomersCount: this.getClaimedCustomers().length,
-      enabledFeatures: this.getEnabledFeatures()
-    };
+    if (!user) return '';
+    return `${user.firstName || ''} ${user.lastName || ''}`.trim();
   }
 
-  // Get all enabled features for current user
-  getEnabledFeatures() {
-    const enabledFeatures = {};
+  /**
+   * Get user initials
+   * @returns {string} User initials
+   */
+  getUserInitials() {
+    const user = this.getUser();
+    if (!user) return '';
     
-    Object.keys(FEATURE_FLAGS).forEach(featureName => {
-      enabledFeatures[featureName] = this.isFeatureEnabled(featureName);
-    });
-
-    return enabledFeatures;
+    const firstInitial = user.firstName ? user.firstName.charAt(0).toUpperCase() : '';
+    const lastInitial = user.lastName ? user.lastName.charAt(0).toUpperCase() : '';
+    
+    return firstInitial + lastInitial;
   }
 
-  // Workflow permission helpers
-  canAssignWorkflow() {
-    return this.hasPermission(PERMISSIONS.WORKFLOW_ASSIGN);
+  /**
+   * Get user role display name
+   * @returns {string} Role display name
+   */
+  getRoleDisplayName() {
+    const user = this.getUser();
+    if (!user) return '';
+    
+    const roleNames = {
+      admin: 'Administrator',
+      assistant: 'Assistant'
+    };
+    
+    return roleNames[user.role] || user.role;
   }
 
-  canEscalateWorkflow() {
-    return this.hasPermission(PERMISSIONS.WORKFLOW_ESCALATE);
-  }
-
-  canManageWorkflow() {
-    return this.hasPermission(PERMISSIONS.WORKFLOW_MANAGE);
-  }
-
-  // Customer management permission helpers
-  canViewCustomer() {
-    return this.hasPermission(PERMISSIONS.CUSTOMER_VIEW);
-  }
-
-  canEditCustomer() {
-    return this.hasPermission(PERMISSIONS.CUSTOMER_EDIT);
-  }
-
-  canCreateCustomer() {
-    return this.hasPermission(PERMISSIONS.CUSTOMER_CREATE);
-  }
-
-  canDeleteCustomer() {
-    return this.hasPermission(PERMISSIONS.CUSTOMER_DELETE);
-  }
-
-  canBulkActionsCustomer() {
-    return this.hasPermission(PERMISSIONS.CUSTOMER_BULK_ACTIONS);
-  }
-
-  // Advanced permission checking with context
-  hasContextualPermission(permission, context = {}) {
-    // Base permission check
-    if (!this.hasPermission(permission)) {
+  /**
+   * Check if current user can manage target user
+   * @param {Object} targetUser - Target user object
+   * @returns {boolean} Management permission status
+   */
+  canManageUser(targetUser) {
+    if (!this.isAuthenticated() || !targetUser) {
       return false;
     }
 
-    // Context-specific checks
-    switch (permission) {
-      case PERMISSIONS.CUSTOMER_CLAIM:
-        // Check if user has reached claim limit
-        if (context.maxClaims && this.getClaimedCustomers().length >= context.maxClaims) {
-          return false;
-        }
-        break;
-
-      case PERMISSIONS.CUSTOMER_CLAIM_TRANSFER:
-        // Check if user can transfer to target user
-        if (context.targetUser && !this.canManageUser(context.targetUser)) {
-          return false;
-        }
-        break;
-
-      case PERMISSIONS.WORKFLOW_ESCALATE:
-        // Check if user can escalate to target level
-        if (context.targetLevel && this.getUserRoleLevel() <= context.targetLevel) {
-          return false;
-        }
-        break;
-
-      default:
-        break;
-    }
-
-    return true;
-  }
-
-  // Get permission context for UI
-  getPermissionContext() {
-    const user = this.getUser();
-    const sessionState = this.getSessionState();
+    const currentUser = this.getUser();
     
-    return {
-      userId: user?.id,
-      userRoles: user?.roles || [],
-      userPermissions: this.getUserPermissions(),
-      claimedCustomers: this.getClaimedCustomers(),
-      sessionActive: this.isSessionActive(),
-      sessionDuration: this.getSessionDuration(),
-      lastActivity: sessionState?.lastActivity,
-      roleLevel: this.getUserRoleLevel(),
-      capabilities: this.getUserCapabilities(),
-      featureFlags: this.getEnabledFeatures()
-    };
+    // Admin can manage assistants but not other admins
+    if (currentUser.role === 'admin') {
+      return targetUser.role === 'assistant';
+    }
+    
+    // Assistants cannot manage other users
+    return false;
   }
 
-  // Check if user should see beta features
-  shouldShowBetaFeatures() {
-    return this.isManagerOrHigher() || this.hasPermission('beta:access');
-  }
-
-  // Check if user is in specific department/team
-  isInDepartment(department) {
+  /**
+   * Get user capabilities for UI
+   * @returns {Object} User capabilities object
+   */
+  getUserCapabilities() {
     const user = this.getUser();
-    return user?.department === department;
-  }
-
-  isInTeam(team) {
-    const user = this.getUser();
-    return user?.team === team;
-  }
-
-  // Enhanced permission validation for customer claiming workflow
-  validateCustomerClaimPermission(action, context = {}) {
-    const validations = {
-      claim: () => {
-        if (!this.canClaimCustomer()) {
-          return { valid: false, message: 'You do not have permission to claim customers' };
-        }
-        
-        if (context.maxClaims && this.getClaimedCustomers().length >= context.maxClaims) {
-          return { valid: false, message: `You have reached the maximum number of claimed customers (${context.maxClaims})` };
-        }
-        
-        if (context.customerId && this.isCustomerClaimed(context.customerId)) {
-          return { valid: false, message: 'This customer is already claimed by you' };
-        }
-        
-        return { valid: true };
-      },
-
-      release: () => {
-        if (!this.canReleaseCustomer()) {
-          return { valid: false, message: 'You do not have permission to release customers' };
-        }
-        
-        if (context.customerId && !this.isCustomerClaimed(context.customerId)) {
-          return { valid: false, message: 'This customer is not claimed by you' };
-        }
-        
-        return { valid: true };
-      },
-
-      transfer: () => {
-        if (!this.canTransferCustomer()) {
-          return { valid: false, message: 'You do not have permission to transfer customers' };
-        }
-        
-        if (context.targetUser && !this.canManageUser(context.targetUser)) {
-          return { valid: false, message: 'You cannot transfer customers to this user' };
-        }
-        
-        if (context.customerId && !this.isCustomerClaimed(context.customerId)) {
-          return { valid: false, message: 'This customer is not claimed by you' };
-        }
-        
-        return { valid: true };
-      },
-
-      manage: () => {
-        if (!this.canManageCustomerClaims()) {
-          return { valid: false, message: 'You do not have permission to manage customer claims' };
-        }
-        
-        return { valid: true };
-      },
-
-      viewAll: () => {
-        if (!this.canViewAllCustomerClaims()) {
-          return { valid: false, message: 'You do not have permission to view all customer claims' };
-        }
-        
-        return { valid: true };
-      }
-    };
-
-    const validator = validations[action];
-    if (!validator) {
-      return { valid: false, message: 'Invalid action specified' };
+    
+    if (!user) {
+      return {
+        canEditCustomers: false,
+        canDeleteCustomers: false,
+        canAssignCustomers: false,
+        canCreateCustomers: false,
+        canViewAllCustomers: false,
+        canManageUsers: false,
+        isAdmin: false,
+        isAssistant: false
+      };
     }
 
-    return validator();
-  }
+    const isAdmin = user.role === 'admin';
+    const isAssistant = user.role === 'assistant';
 
-  // Activity tracking for customer claims
-  trackClaimActivity(action, customerId, metadata = {}) {
-    const activity = {
-      action,
-      customerId,
-      timestamp: new Date().toISOString(),
-      userId: this.getUser()?.id,
-      metadata
+    return {
+      canEditCustomers: isAdmin || isAssistant,
+      canDeleteCustomers: isAdmin,
+      canAssignCustomers: isAdmin,
+      canCreateCustomers: true,
+      canViewAllCustomers: isAdmin,
+      canManageUsers: isAdmin,
+      isAdmin,
+      isAssistant,
+      role: user.role,
+      fullName: this.getUserFullName(),
+      initials: this.getUserInitials(),
+      roleDisplayName: this.getRoleDisplayName()
     };
-
-    // Store in session for potential API sync
-    const sessionState = this.getSessionState();
-    const activities = sessionState?.claimActivities || [];
-    activities.push(activity);
-
-    this.updateSessionState({
-      claimActivities: activities.slice(-50), // Keep last 50 activities
-      lastClaimActivity: activity.timestamp
-    });
-
-    return activity;
-  }
-
-  // Get recent claim activities
-  getRecentClaimActivities(limit = 10) {
-    const sessionState = this.getSessionState();
-    const activities = sessionState?.claimActivities || [];
-    return activities.slice(-limit);
-  }
-
-  // Clear claim activities
-  clearClaimActivities() {
-    this.updateSessionState({
-      claimActivities: [],
-      lastClaimActivity: null
-    });
   }
 }
 
-// Create and export singleton instance
+// Create and export service instance
 const authService = new AuthService();
 export default authService;
