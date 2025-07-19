@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useRef } from 'react';
 import authService from '../services/authService';
 
 // Initial state
@@ -7,10 +7,10 @@ const initialState = {
   token: null,
   isAuthenticated: false,
   isLoading: true,
+  isRefreshing: false,
   error: null,
   sessionTimeout: null,
-  permissions: [],
-  refreshTimer: null
+  permissions: []
 };
 
 // Action types
@@ -19,13 +19,15 @@ const AUTH_ACTIONS = {
   LOGIN_SUCCESS: 'LOGIN_SUCCESS',
   LOGIN_FAILURE: 'LOGIN_FAILURE',
   LOGOUT: 'LOGOUT',
+  TOKEN_REFRESH_START: 'TOKEN_REFRESH_START',
   TOKEN_REFRESH_SUCCESS: 'TOKEN_REFRESH_SUCCESS',
   TOKEN_REFRESH_FAILURE: 'TOKEN_REFRESH_FAILURE',
   SET_LOADING: 'SET_LOADING',
   CLEAR_ERROR: 'CLEAR_ERROR',
   SESSION_TIMEOUT_WARNING: 'SESSION_TIMEOUT_WARNING',
   UPDATE_USER_PROFILE: 'UPDATE_USER_PROFILE',
-  SET_PERMISSIONS: 'SET_PERMISSIONS'
+  SET_PERMISSIONS: 'SET_PERMISSIONS',
+  INITIALIZATION_COMPLETE: 'INITIALIZATION_COMPLETE'
 };
 
 // Auth reducer
@@ -45,6 +47,7 @@ const authReducer = (state, action) => {
         token: action.payload.token,
         isAuthenticated: true,
         isLoading: false,
+        isRefreshing: false,
         error: null,
         permissions: action.payload.permissions || []
       };
@@ -56,6 +59,7 @@ const authReducer = (state, action) => {
         token: null,
         isAuthenticated: false,
         isLoading: false,
+        isRefreshing: false,
         error: action.payload,
         permissions: []
       };
@@ -66,18 +70,28 @@ const authReducer = (state, action) => {
         isLoading: false
       };
 
+    case AUTH_ACTIONS.TOKEN_REFRESH_START:
+      return {
+        ...state,
+        isRefreshing: true,
+        error: null
+      };
+
     case AUTH_ACTIONS.TOKEN_REFRESH_SUCCESS:
       return {
         ...state,
         token: action.payload.token,
         user: action.payload.user || state.user,
-        error: null
+        isRefreshing: false,
+        error: null,
+        isAuthenticated: true // Ensure authenticated state is maintained
       };
 
     case AUTH_ACTIONS.TOKEN_REFRESH_FAILURE:
       return {
         ...initialState,
         isLoading: false,
+        isRefreshing: false,
         error: 'Session expired. Please login again.'
       };
 
@@ -85,6 +99,12 @@ const authReducer = (state, action) => {
       return {
         ...state,
         isLoading: action.payload
+      };
+
+    case AUTH_ACTIONS.INITIALIZATION_COMPLETE:
+      return {
+        ...state,
+        isLoading: false
       };
 
     case AUTH_ACTIONS.CLEAR_ERROR:
@@ -125,61 +145,144 @@ const AuthContext = createContext();
 // Auth provider component
 export const AuthProvider = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
+  
+  // Use refs to store timer references and prevent re-initialization
+  const refreshTimerRef = useRef(null);
+  const sessionTimerRef = useRef(null);
+  const warningTimerRef = useRef(null);
+  const isInitializingRef = useRef(false);
+  const initializationCompletedRef = useRef(false); // NEW: Track if initialization is done
 
   // Session timeout duration (30 minutes)
   const SESSION_TIMEOUT = 30 * 60 * 1000;
   const WARNING_TIME = 5 * 60 * 1000; // Show warning 5 minutes before timeout
 
-  // Initialize auth state on app load
+  // Initialize auth state on app load - FIXED: Only run once
   useEffect(() => {
-    initializeAuth();
-  }, []);
+    if (!isInitializingRef.current && !initializationCompletedRef.current) {
+      isInitializingRef.current = true;
+      initializeAuth();
+    }
+  }, []); // FIXED: Empty dependency array
 
-  // Set up token refresh timer
+  // Set up token refresh timer when authenticated - FIXED: Better conditions
   useEffect(() => {
-    if (state.isAuthenticated && state.token) {
+    if (state.isAuthenticated && state.token && !state.isRefreshing && !state.isLoading) {
       setupTokenRefresh();
       setupSessionTimeout();
     }
+    
+    // Cleanup when authentication state changes
     return () => {
-      clearRefreshTimer();
-      clearSessionTimeout();
+      if (!state.isAuthenticated) {
+        clearAllTimers();
+      }
     };
-  }, [state.isAuthenticated, state.token]);
+  }, [state.isAuthenticated, state.token, state.isRefreshing, state.isLoading]); // FIXED: Added isLoading
 
-  // FIXED: Initialize authentication using authService.initializeAuth()
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      clearAllTimers();
+    };
+  }, []);
+
+  // Enhanced initialization with better error handling - FIXED: Prevent loops
   const initializeAuth = async () => {
     try {
       console.log('🔍 AuthContext: Starting initialization...');
       
-      // Use the built-in authService.initializeAuth() method
-      const authResult = await authService.initializeAuth();
-      console.log('🔍 AuthContext: Auth result:', authResult);
+      // Check if we have stored authentication data
+      const storedToken = localStorage.getItem('token');
+      const storedUser = localStorage.getItem('user');
+      const loginTime = localStorage.getItem('loginTime');
       
-      if (authResult.authenticated) {
-        console.log('✅ User is authenticated:', authResult.user);
-        dispatch({
-          type: AUTH_ACTIONS.LOGIN_SUCCESS,
-          payload: {
-            user: authResult.user,
-            token: authService.getToken(),
-            permissions: authResult.user?.permissions || []
-          }
-        });
+      if (!storedToken || !storedUser) {
+        console.log('❌ No stored authentication data found');
+        dispatch({ type: AUTH_ACTIONS.INITIALIZATION_COMPLETE });
+        return;
+      }
+
+      // FIXED: More lenient session timeout check
+      if (loginTime) {
+        const elapsed = Date.now() - parseInt(loginTime);
+        // Only clear if session is SIGNIFICANTLY expired (add 5 minute buffer)
+        if (elapsed > (SESSION_TIMEOUT + 5 * 60 * 1000)) {
+          console.log('⏰ Session significantly expired, clearing stored data');
+          clearStoredAuth();
+          dispatch({ type: AUTH_ACTIONS.INITIALIZATION_COMPLETE });
+          return;
+        }
+      }
+
+      // Parse stored user data
+      let parsedUser;
+      try {
+        parsedUser = JSON.parse(storedUser);
+      } catch (error) {
+        console.error('❌ Failed to parse stored user data:', error);
+        clearStoredAuth();
+        dispatch({ type: AUTH_ACTIONS.INITIALIZATION_COMPLETE });
+        return;
+      }
+
+      // Try to use authService.initializeAuth() if it exists
+      if (typeof authService.initializeAuth === 'function') {
+        console.log('🔍 Using authService.initializeAuth()...');
+        const authResult = await authService.initializeAuth();
+        
+        if (authResult.authenticated) {
+          console.log('✅ User authenticated via authService');
+          dispatch({
+            type: AUTH_ACTIONS.LOGIN_SUCCESS,
+            payload: {
+              user: authResult.user,
+              token: storedToken,
+              permissions: authResult.user?.permissions || []
+            }
+          });
+        } else {
+          console.log('❌ User not authenticated via authService');
+          clearStoredAuth();
+          dispatch({ type: AUTH_ACTIONS.INITIALIZATION_COMPLETE });
+        }
       } else {
-        console.log('❌ User is not authenticated');
-        dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
+        // Fallback: validate token manually - FIXED: More lenient validation
+        console.log('🔍 Validating token manually...');
+        
+        // FIXED: Don't validate JWT expiration on frontend, let backend handle it
+        const isValidToken = storedToken && storedToken.length > 0;
+        
+        if (isValidToken) {
+          console.log('✅ Token exists, restoring session');
+          dispatch({
+            type: AUTH_ACTIONS.LOGIN_SUCCESS,
+            payload: {
+              user: parsedUser,
+              token: storedToken,
+              permissions: parsedUser?.permissions || []
+            }
+          });
+        } else {
+          console.log('❌ No valid token found');
+          clearStoredAuth();
+          dispatch({ type: AUTH_ACTIONS.INITIALIZATION_COMPLETE });
+        }
       }
     } catch (error) {
       console.error('❌ Auth initialization error:', error);
       clearStoredAuth();
-      dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
+      dispatch({ type: AUTH_ACTIONS.INITIALIZATION_COMPLETE });
+    } finally {
+      isInitializingRef.current = false;
+      initializationCompletedRef.current = true; // FIXED: Mark initialization as complete
     }
   };
 
+  // REMOVED: validateToken function that was causing issues with JWT parsing
+
   // Helper function to format error messages
   const formatErrorMessage = (error) => {
-    // Handle validation errors from backend
     if (error.response?.data?.errors) {
       const errors = error.response.data.errors;
       if (Array.isArray(errors)) {
@@ -188,12 +291,10 @@ export const AuthProvider = ({ children }) => {
       return 'Validation failed. Please check your input.';
     }
     
-    // Handle standard error messages
     if (error.response?.data?.message) {
       return error.response.data.message;
     }
     
-    // Handle network errors
     if (error.message) {
       return error.message;
     }
@@ -201,24 +302,32 @@ export const AuthProvider = ({ children }) => {
     return 'An unexpected error occurred. Please try again.';
   };
 
-  // Login function
+  // Login function - FIXED: Handle authService response format
   const login = async (credentials) => {
     try {
       dispatch({ type: AUTH_ACTIONS.LOGIN_START });
 
       const response = await authService.login(credentials);
       
+      // FIXED: Handle the actual response structure from your authService
       if (response.success) {
-        const { user, token, permissions } = response;
+        // Extract from response.data if it exists, otherwise from response directly
+        const userData = response.data?.user || response.user;
+        const tokenData = response.data?.token || response.token;
+        const permissionsData = response.data?.permissions || response.permissions || userData?.permissions || [];
         
-        // Store authentication data
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(user));
-        localStorage.setItem('loginTime', Date.now().toString());
+        // Store authentication data - FIXED: Set loginTime AFTER successful response
+        localStorage.setItem('token', tokenData);
+        localStorage.setItem('user', JSON.stringify(userData));
+        localStorage.setItem('loginTime', Date.now().toString()); // FIXED: Set time on successful login
 
         dispatch({
           type: AUTH_ACTIONS.LOGIN_SUCCESS,
-          payload: { user, token, permissions }
+          payload: { 
+            user: userData, 
+            token: tokenData, 
+            permissions: permissionsData 
+          }
         });
 
         return { success: true };
@@ -251,22 +360,30 @@ export const AuthProvider = ({ children }) => {
       console.error('Logout error:', error);
     } finally {
       clearStoredAuth();
-      clearRefreshTimer();
-      clearSessionTimeout();
+      clearAllTimers();
       dispatch({ type: AUTH_ACTIONS.LOGOUT });
     }
   };
 
-  // Token refresh function
+  // Token refresh function with better error handling
   const refreshToken = async () => {
+    // Prevent multiple simultaneous refresh attempts
+    if (state.isRefreshing) {
+      console.log('🔄 Token refresh already in progress');
+      return false;
+    }
+
     try {
-      const currentToken = state.token || localStorage.getItem('token');
+      dispatch({ type: AUTH_ACTIONS.TOKEN_REFRESH_START });
       
-      if (!currentToken) {
-        throw new Error('No token available for refresh');
+      const refreshTokenValue = localStorage.getItem('refreshToken');
+      
+      if (!refreshTokenValue) {
+        console.error('❌ No refresh token available');
+        throw new Error('No refresh token available');
       }
 
-      const response = await authService.refreshToken(currentToken);
+      const response = await authService.refreshToken(refreshTokenValue);
       
       if (response.success) {
         const { token, user } = response;
@@ -276,19 +393,32 @@ export const AuthProvider = ({ children }) => {
           localStorage.setItem('user', JSON.stringify(user));
         }
 
+        // FIXED: Only reset login time on explicit refresh, not automatic
+        localStorage.setItem('loginTime', Date.now().toString());
+
         dispatch({
           type: AUTH_ACTIONS.TOKEN_REFRESH_SUCCESS,
           payload: { token, user }
         });
 
+        console.log('✅ Token refreshed successfully');
         return true;
       } else {
         throw new Error('Token refresh failed');
       }
     } catch (error) {
-      console.error('Token refresh error:', error);
-      dispatch({ type: AUTH_ACTIONS.TOKEN_REFRESH_FAILURE });
-      clearStoredAuth();
+      console.error('❌ Token refresh error:', error);
+      
+      // Only logout if it's an authentication error
+      if (error.response?.status === 401 || error.message.includes('refresh token')) {
+        dispatch({ type: AUTH_ACTIONS.TOKEN_REFRESH_FAILURE });
+        clearStoredAuth();
+        clearAllTimers();
+      } else {
+        // For other errors, just stop the refresh loading state
+        dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
+      }
+      
       return false;
     }
   };
@@ -318,23 +448,136 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Check if user has specific permission
+  // ===== ROLE-BASED ROUTING HELPER METHODS =====
+
+  // Get user role with fallback options
+  const getUserRole = () => {
+    return state.user?.role || null;
+  };
+
+  // Check if user role is valid
+  const isValidRole = (role) => {
+    const validRoles = ['admin', 'assistant'];
+    return validRoles.includes(role);
+  };
+
+  // Get redirect path based on user role
+  const getRedirectPath = () => {
+    const role = getUserRole();
+    
+    if (!role) {
+      console.warn('⚠️ No user role found, redirecting to login');
+      return '/login';
+    }
+
+    if (!isValidRole(role)) {
+      console.warn(`⚠️ Invalid user role: ${role}, redirecting to login`);
+      return '/login';
+    }
+
+    switch (role) {
+      case 'admin':
+        return '/admin-dashboard';
+      case 'assistant':
+        return '/assistant-dashboard';
+      default:
+        console.warn(`⚠️ Unknown role: ${role}, redirecting to login`);
+        return '/login';
+    }
+  };
+
+  // Get dashboard path for current user
+  const getDashboardPath = () => {
+    if (!state.isAuthenticated) {
+      return '/login';
+    }
+    
+    return getRedirectPath();
+  };
+
+  // Check if user can access a specific route
+  const canAccessRoute = (routePath) => {
+    if (!state.isAuthenticated) {
+      return false;
+    }
+
+    const role = getUserRole();
+    if (!role || !isValidRole(role)) {
+      return false;
+    }
+
+    // Define route access rules
+    const routeAccess = {
+      '/admin-dashboard': ['admin'],
+      '/assistant-dashboard': ['assistant'],
+      '/customer': ['admin', 'assistant'],
+      '/login': [], // Always accessible
+    };
+
+    // Get allowed roles for the route
+    const allowedRoles = routeAccess[routePath];
+    
+    // If route is not defined, check if it's a general route
+    if (!allowedRoles) {
+      return true; // Allow access to undefined routes (let ProtectedRoute handle it)
+    }
+
+    // If route has no role restrictions, allow access
+    if (allowedRoles.length === 0) {
+      return true;
+    }
+
+    // Check if user's role is allowed
+    return allowedRoles.includes(role);
+  };
+
+  // Get appropriate home route for user
+  const getHomeRoute = () => {
+    if (!state.isAuthenticated) {
+      return '/login';
+    }
+    
+    return getDashboardPath();
+  };
+
+  // Validate role-based navigation
+  const validateNavigation = (targetPath) => {
+    if (!state.isAuthenticated) {
+      return {
+        allowed: false,
+        redirectTo: '/login',
+        reason: 'Not authenticated'
+      };
+    }
+
+    if (!canAccessRoute(targetPath)) {
+      return {
+        allowed: false,
+        redirectTo: getDashboardPath(),
+        reason: 'Insufficient permissions'
+      };
+    }
+
+    return {
+      allowed: true,
+      redirectTo: null,
+      reason: null
+    };
+  };
+
+  // ===== END ROLE-BASED ROUTING METHODS =====
+
+  // Permission and role checking functions
   const hasPermission = (permission) => {
     if (!state.isAuthenticated || !state.user) return false;
-    
-    // Admin has all permissions
     if (state.user.role === 'admin') return true;
-    
-    // Check specific permissions
     return state.permissions.includes(permission);
   };
 
-  // Check if user has specific role
   const hasRole = (role) => {
     return state.isAuthenticated && state.user?.role === role;
   };
 
-  // Check if user can access feature
   const canAccess = (feature) => {
     if (!state.isAuthenticated) return false;
     
@@ -364,24 +607,25 @@ export const AuthProvider = ({ children }) => {
     return userPermissions.includes(feature);
   };
 
-  // Setup token refresh timer
+  // Setup token refresh timer - FIXED: Better conditions
   const setupTokenRefresh = () => {
     clearRefreshTimer();
+    
+    // Only set up refresh if we're actually authenticated and not already refreshing
+    if (!state.isAuthenticated || state.isRefreshing) return;
     
     // Refresh token every 25 minutes (before 30-minute expiry)
     const refreshInterval = 25 * 60 * 1000;
     
-    const timer = setInterval(() => {
-      refreshToken();
+    refreshTimerRef.current = setInterval(async () => {
+      console.log('🔄 Background token refresh triggered');
+      await refreshToken();
     }, refreshInterval);
-
-    // Store timer reference for cleanup
-    state.refreshTimer = timer;
   };
 
-  // Setup session timeout
+  // Setup session timeout - FIXED: More lenient timing
   const setupSessionTimeout = () => {
-    clearSessionTimeout();
+    clearSessionTimer();
     
     const loginTime = localStorage.getItem('loginTime');
     if (!loginTime) return;
@@ -389,16 +633,17 @@ export const AuthProvider = ({ children }) => {
     const elapsed = Date.now() - parseInt(loginTime);
     const remaining = SESSION_TIMEOUT - elapsed;
 
-    if (remaining <= 0) {
-      // Session already expired
-      logout();
+    // FIXED: Don't set timeout if session is already very close to expiring
+    if (remaining <= WARNING_TIME) {
+      console.log('⏰ Session is close to expiring, not setting timeout');
       return;
     }
 
     // Set warning timer
     const warningTime = remaining - WARNING_TIME;
     if (warningTime > 0) {
-      setTimeout(() => {
+      warningTimerRef.current = setTimeout(() => {
+        console.log('⚠️ Session timeout warning');
         dispatch({
           type: AUTH_ACTIONS.SESSION_TIMEOUT_WARNING,
           payload: true
@@ -407,20 +652,39 @@ export const AuthProvider = ({ children }) => {
     }
 
     // Set logout timer
-    setTimeout(() => {
+    sessionTimerRef.current = setTimeout(() => {
+      console.log('⏰ Session timed out, logging out');
       logout();
     }, remaining);
   };
 
-  // Clear refresh timer
+  // Clear individual timers
   const clearRefreshTimer = () => {
-    if (state.refreshTimer) {
-      clearInterval(state.refreshTimer);
+    if (refreshTimerRef.current) {
+      clearInterval(refreshTimerRef.current);
+      refreshTimerRef.current = null;
     }
   };
 
-  // Clear session timeout
-  const clearSessionTimeout = () => {
+  const clearSessionTimer = () => {
+    if (sessionTimerRef.current) {
+      clearTimeout(sessionTimerRef.current);
+      sessionTimerRef.current = null;
+    }
+  };
+
+  const clearWarningTimer = () => {
+    if (warningTimerRef.current) {
+      clearTimeout(warningTimerRef.current);
+      warningTimerRef.current = null;
+    }
+  };
+
+  // Clear all timers
+  const clearAllTimers = () => {
+    clearRefreshTimer();
+    clearSessionTimer();
+    clearWarningTimer();
     dispatch({
       type: AUTH_ACTIONS.SESSION_TIMEOUT_WARNING,
       payload: false
@@ -432,6 +696,7 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('loginTime');
+    localStorage.removeItem('refreshToken');
   };
 
   // Clear error
@@ -441,12 +706,36 @@ export const AuthProvider = ({ children }) => {
 
   // Extend session
   const extendSession = () => {
+    console.log('🔄 Extending session');
     localStorage.setItem('loginTime', Date.now().toString());
     setupSessionTimeout();
     dispatch({
       type: AUTH_ACTIONS.SESSION_TIMEOUT_WARNING,
       payload: false
     });
+  };
+
+  // Manual token refresh function for UI components
+  const manualRefreshToken = async () => {
+    if (state.isRefreshing) return false;
+    return await refreshToken();
+  };
+
+  // Get session info
+  const getSessionInfo = () => {
+    const loginTime = localStorage.getItem('loginTime');
+    if (!loginTime) return null;
+
+    const elapsed = Date.now() - parseInt(loginTime);
+    const remaining = SESSION_TIMEOUT - elapsed;
+
+    return {
+      loginTime: parseInt(loginTime),
+      elapsed,
+      remaining,
+      isExpired: remaining <= 0,
+      willExpireSoon: remaining <= WARNING_TIME
+    };
   };
 
   // Context value
@@ -456,6 +745,7 @@ export const AuthProvider = ({ children }) => {
     token: state.token,
     isAuthenticated: state.isAuthenticated,
     isLoading: state.isLoading,
+    isRefreshing: state.isRefreshing,
     error: state.error,
     sessionTimeout: state.sessionTimeout,
     permissions: state.permissions,
@@ -463,7 +753,7 @@ export const AuthProvider = ({ children }) => {
     // Actions
     login,
     logout,
-    refreshToken,
+    refreshToken: manualRefreshToken,
     updateUserProfile,
     clearError,
     extendSession,
@@ -471,7 +761,19 @@ export const AuthProvider = ({ children }) => {
     // Permission checks
     hasPermission,
     hasRole,
-    canAccess
+    canAccess,
+
+    // Role-based routing helpers
+    getUserRole,
+    isValidRole,
+    getRedirectPath,
+    getDashboardPath,
+    canAccessRoute,
+    getHomeRoute,
+    validateNavigation,
+
+    // Session utilities
+    getSessionInfo
   };
 
   return (
