@@ -1,46 +1,35 @@
 import { apiHelpers, API_ENDPOINTS, handleApiError } from './api';
 
 /**
- * Simplified Customer Service for School Project
- * Handles core customer operations with role-based authentication
+ * Customer Service for School Project
+ * Handles core customer management operations
+ * Simple CRUD operations for customer data
  */
-class CustomerService {
+export class CustomerService {
+  
   /**
-   * Get customers with role-based filtering
+   * Get all customers
    * @param {Object} params - Query parameters
    * @param {number} params.page - Page number (default: 1)
    * @param {number} params.limit - Items per page (default: 10)
    * @param {string} params.search - Search term
-   * @param {string} params.userId - Current user ID
-   * @param {string} params.role - User role (admin/assistant)
    * @returns {Promise<Object>} Response with customers list
    */
-  async getCustomers(params = {}) {
+  static async getCustomers(params = {}) {
     try {
       const queryParams = new URLSearchParams({
         page: params.page || 1,
         limit: params.limit || 10,
         ...(params.search && { search: params.search }),
-        ...(params.role === 'assistant' && { assignedTo: params.userId }),
       });
 
       const response = await apiHelpers.get(`${API_ENDPOINTS.CUSTOMERS.LIST}?${queryParams}`);
       
-      return {
-        success: true,
-        data: {
-          customers: this.transformCustomersData(response.data || []),
-          currentPage: response.currentPage || 1,
-          totalPages: response.totalPages || 1,
-          totalCustomers: response.totalItems || 0,
-        }
-      };
+      const customers = Array.isArray(response) ? response : response.data || [];
+      
+      return customers.map(CustomerService.transformCustomerData);
     } catch (error) {
-      return {
-        success: false,
-        message: handleApiError(error, 'Failed to fetch customers'),
-        data: null
-      };
+      throw new Error(handleApiError(error, 'Failed to fetch customers'));
     }
   }
 
@@ -49,7 +38,7 @@ class CustomerService {
    * @param {string} customerId - Customer ID
    * @returns {Promise<Object>} Customer data
    */
-  async getCustomerById(customerId) {
+  static async getCustomerById(customerId) {
     try {
       if (!customerId) {
         throw new Error('Customer ID is required');
@@ -57,16 +46,9 @@ class CustomerService {
 
       const response = await apiHelpers.get(API_ENDPOINTS.CUSTOMERS.GET(customerId));
       
-      return {
-        success: true,
-        data: this.transformCustomersData([response.data])[0]
-      };
+      return CustomerService.transformCustomerData(response);
     } catch (error) {
-      return {
-        success: false,
-        message: handleApiError(error, 'Failed to fetch customer details'),
-        data: null
-      };
+      throw new Error(handleApiError(error, 'Failed to fetch customer'));
     }
   }
 
@@ -76,70 +58,68 @@ class CustomerService {
    * @param {string} customerData.fullName - Customer full name
    * @param {string} customerData.email - Customer email
    * @param {string} customerData.phone - Customer phone
-   * @param {string} customerData.notes - Customer notes
-   * @param {string} customerData.assignedTo - Optional assignment (admin only)
+   * @param {string} customerData.notes - Customer notes (optional)
    * @returns {Promise<Object>} Created customer data
    */
-  async createCustomer(customerData) {
+  static async createCustomer(customerData) {
     try {
       // Basic validation
-      this.validateCustomerData(customerData);
+      CustomerService.validateCustomerData(customerData);
 
-      const response = await apiHelpers.post(API_ENDPOINTS.CUSTOMERS.CREATE, customerData);
+      const payload = {
+        fullName: customerData.fullName.trim(),
+        email: customerData.email.trim().toLowerCase(),
+        phone: customerData.phone.trim(),
+        notes: customerData.notes?.trim() || ''
+      };
+
+      const response = await apiHelpers.post(API_ENDPOINTS.CUSTOMERS.CREATE, payload);
       
-      return {
-        success: true,
-        data: this.transformCustomersData([response.data])[0],
-        message: 'Customer created successfully'
-      };
+      return CustomerService.transformCustomerData(response);
     } catch (error) {
-      return {
-        success: false,
-        message: handleApiError(error, 'Failed to create customer'),
-        data: null
-      };
+      throw new Error(handleApiError(error, 'Failed to create customer'));
     }
   }
 
   /**
    * Update existing customer
    * @param {string} customerId - Customer ID
-   * @param {Object} customerData - Updated customer information
+   * @param {Object} updateData - Updated customer information
    * @returns {Promise<Object>} Updated customer data
    */
-  async updateCustomer(customerId, customerData) {
+  static async updateCustomer(customerId, updateData) {
     try {
       if (!customerId) {
         throw new Error('Customer ID is required');
       }
 
-      // Basic validation for provided data
-      if (Object.keys(customerData).length > 0) {
-        this.validateCustomerData(customerData, false);
+      // Prepare update payload
+      const payload = {};
+      
+      if (updateData.fullName) payload.fullName = updateData.fullName.trim();
+      if (updateData.email) payload.email = updateData.email.trim().toLowerCase();
+      if (updateData.phone) payload.phone = updateData.phone.trim();
+      if (updateData.notes !== undefined) payload.notes = updateData.notes?.trim() || '';
+
+      // Validate provided data
+      if (Object.keys(payload).length > 0) {
+        CustomerService.validateCustomerData(payload, false);
       }
 
-      const response = await apiHelpers.put(API_ENDPOINTS.CUSTOMERS.UPDATE(customerId), customerData);
+      const response = await apiHelpers.put(API_ENDPOINTS.CUSTOMERS.UPDATE(customerId), payload);
       
-      return {
-        success: true,
-        data: this.transformCustomersData([response.data])[0],
-        message: 'Customer updated successfully'
-      };
+      return CustomerService.transformCustomerData(response);
     } catch (error) {
-      return {
-        success: false,
-        message: handleApiError(error, 'Failed to update customer'),
-        data: null
-      };
+      throw new Error(handleApiError(error, 'Failed to update customer'));
     }
   }
 
   /**
-   * Delete customer (admin only)
+   * Delete customer
    * @param {string} customerId - Customer ID
-   * @returns {Promise<Object>} Success status
+   * @returns {Promise<boolean>} Success status
    */
-  async deleteCustomer(customerId) {
+  static async deleteCustomer(customerId) {
     try {
       if (!customerId) {
         throw new Error('Customer ID is required');
@@ -147,342 +127,97 @@ class CustomerService {
 
       await apiHelpers.delete(API_ENDPOINTS.CUSTOMERS.DELETE(customerId));
       
-      return {
-        success: true,
-        message: 'Customer deleted successfully'
-      };
+      return true;
     } catch (error) {
-      return {
-        success: false,
-        message: handleApiError(error, 'Failed to delete customer')
-      };
+      throw new Error(handleApiError(error, 'Failed to delete customer'));
     }
   }
 
   /**
-   * Get all assistants (admin only)
-   * @returns {Promise<Object>} Response with assistants list
+   * Transform customer data for consistent UI usage
+   * @param {Object} customer - Raw customer data
+   * @returns {Object} Transformed customer data
    */
-  async getAssistants() {
-    try {
-      const response = await apiHelpers.get(`${API_ENDPOINTS.USERS.LIST}?role=assistant`);
-      
-      return {
-        success: true,
-        data: response.data || []
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: handleApiError(error, 'Failed to fetch assistants'),
-        data: []
-      };
-    }
-  }
+  static transformCustomerData(customer) {
+    if (!customer) return null;
 
-  /**
-   * Assign customer to assistant (admin only)
-   * @param {string} customerId - Customer ID
-   * @param {string} assistantId - Assistant ID (null to unassign)
-   * @returns {Promise<Object>} Assignment response
-   */
-  async assignCustomer(customerId, assistantId) {
-    try {
-      if (!customerId) {
-        throw new Error('Customer ID is required');
-      }
-
-      const assignmentData = {
-        assignedTo: assistantId || null
-      };
-
-      const response = await apiHelpers.patch(
-        `${API_ENDPOINTS.CUSTOMERS.UPDATE(customerId)}/assign`,
-        assignmentData
-      );
-      
-      return {
-        success: true,
-        data: this.transformCustomersData([response.data])[0],
-        message: assistantId ? 'Customer assigned successfully' : 'Customer unassigned successfully'
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: handleApiError(error, 'Failed to assign customer'),
-        data: null
-      };
-    }
-  }
-
-  /**
-   * Add note to customer
-   * @param {string} customerId - Customer ID
-   * @param {Object} noteData - Note data
-   * @param {string} noteData.content - Note content
-   * @param {string} noteData.type - Note type (default: 'general')
-   * @returns {Promise<Object>} Created note
-   */
-  async addCustomerNote(customerId, noteData) {
-    try {
-      if (!customerId) {
-        throw new Error('Customer ID is required');
-      }
-
-      if (!noteData.content || noteData.content.trim() === '') {
-        throw new Error('Note content is required');
-      }
-
-      const response = await apiHelpers.post(
-        `${API_ENDPOINTS.CUSTOMERS.GET(customerId)}/notes`,
-        {
-          content: noteData.content,
-          type: noteData.type || 'general'
-        }
-      );
-      
-      return {
-        success: true,
-        data: response.data,
-        message: 'Note added successfully'
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: handleApiError(error, 'Failed to add customer note'),
-        data: null
-      };
-    }
-  }
-
-  /**
-   * Get customer notes
-   * @param {string} customerId - Customer ID
-   * @returns {Promise<Object>} Customer notes
-   */
-  async getCustomerNotes(customerId) {
-    try {
-      if (!customerId) {
-        throw new Error('Customer ID is required');
-      }
-
-      const response = await apiHelpers.get(`${API_ENDPOINTS.CUSTOMERS.GET(customerId)}/notes`);
-      
-      return {
-        success: true,
-        data: response.data || []
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: handleApiError(error, 'Failed to fetch customer notes'),
-        data: []
-      };
-    }
-  }
-
-  /**
-   * Update customer status
-   * @param {string} customerId - Customer ID
-   * @param {string} status - New status (active, inactive)
-   * @returns {Promise<Object>} Updated customer
-   */
-  async updateCustomerStatus(customerId, status) {
-    try {
-      if (!customerId) {
-        throw new Error('Customer ID is required');
-      }
-
-      const validStatuses = ['active', 'inactive'];
-      if (!validStatuses.includes(status)) {
-        throw new Error('Invalid customer status');
-      }
-
-      const response = await apiHelpers.patch(
-        `${API_ENDPOINTS.CUSTOMERS.UPDATE(customerId)}/status`,
-        { status }
-      );
-      
-      return {
-        success: true,
-        data: this.transformCustomersData([response.data])[0],
-        message: 'Customer status updated successfully'
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: handleApiError(error, 'Failed to update customer status'),
-        data: null
-      };
-    }
-  }
-
-  /**
-   * Transform customers data to consistent format
-   * @param {Array} customers - Raw customer data
-   * @returns {Array} Transformed customer data
-   */
-  transformCustomersData(customers) {
-    if (!Array.isArray(customers)) {
-      return [];
-    }
-
-    return customers.map(customer => ({
-      _id: customer._id || customer.id,
-      fullName: customer.fullName || customer.name || '',
+    return {
+      id: customer.id || customer._id,
+      fullName: customer.fullName || '',
       email: customer.email || '',
       phone: customer.phone || '',
       notes: customer.notes || '',
-      status: customer.status || 'active',
-      assignedTo: customer.assignedTo ? {
-        _id: customer.assignedTo._id || customer.assignedTo.id,
-        firstName: customer.assignedTo.firstName || '',
-        lastName: customer.assignedTo.lastName || '',
-        email: customer.assignedTo.email || '',
-        role: customer.assignedTo.role || 'assistant'
-      } : null,
-      assignedAt: customer.assignedAt || null,
-      isAssigned: !!customer.assignedTo,
-      createdAt: customer.createdAt,
-      updatedAt: customer.updatedAt
-    }));
+      createdAt: customer.createdAt || null,
+      updatedAt: customer.updatedAt || null
+    };
   }
 
   /**
-   * Basic validation for customer data
-   * @param {Object} customerData - Customer data to validate
+   * Validate customer data
+   * @param {Object} data - Customer data to validate
    * @param {boolean} isComplete - Whether to validate all required fields
    * @throws {Error} Validation error
    */
-  validateCustomerData(customerData, isComplete = true) {
-    const errors = [];
-
+  static validateCustomerData(data, isComplete = true) {
     // Required field validation
-    if (isComplete && (!customerData.fullName || customerData.fullName.trim() === '')) {
-      errors.push('Customer name is required');
+    if (isComplete && (!data.fullName || !data.fullName.trim())) {
+      throw new Error('Customer name is required');
+    }
+
+    if (isComplete && (!data.email || !data.email.trim())) {
+      throw new Error('Email is required');
+    }
+
+    if (isComplete && (!data.phone || !data.phone.trim())) {
+      throw new Error('Phone is required');
     }
 
     // Email validation
-    if (customerData.email) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(customerData.email)) {
-        errors.push('Invalid email format');
-      }
-    } else if (isComplete) {
-      errors.push('Email is required');
+    if (data.email && !CustomerService.isValidEmail(data.email.trim())) {
+      throw new Error('Please enter a valid email address');
     }
 
     // Phone validation
-    if (customerData.phone) {
-      const phoneRegex = /^[\+]?[0-9\s\-\(\)]{10,}$/;
-      if (!phoneRegex.test(customerData.phone)) {
-        errors.push('Invalid phone format');
-      }
-    } else if (isComplete) {
-      errors.push('Phone is required');
+    if (data.phone && !CustomerService.isValidPhone(data.phone.trim())) {
+      throw new Error('Please enter a valid phone number');
     }
 
-    // Name length validation
-    if (customerData.fullName && customerData.fullName.length > 100) {
-      errors.push('Customer name must be less than 100 characters');
+    // Length validation
+    if (data.fullName && data.fullName.length > 100) {
+      throw new Error('Customer name must be less than 100 characters');
     }
 
-    // Notes length validation
-    if (customerData.notes && customerData.notes.length > 500) {
-      errors.push('Notes must be less than 500 characters');
-    }
-
-    // Status validation
-    if (customerData.status) {
-      const validStatuses = ['active', 'inactive'];
-      if (!validStatuses.includes(customerData.status)) {
-        errors.push('Invalid customer status');
-      }
-    }
-
-    if (errors.length > 0) {
-      throw new Error(errors.join(', '));
+    if (data.notes && data.notes.length > 500) {
+      throw new Error('Notes must be less than 500 characters');
     }
   }
 
   /**
-   * Check if user can edit customer (role-based)
-   * @param {Object} customer - Customer object
-   * @param {string} userId - Current user ID
-   * @param {string} userRole - Current user role
-   * @returns {boolean} Can edit status
+   * Simple email validation
+   * @param {string} email - Email to validate
+   * @returns {boolean} Is valid email
    */
-  canEditCustomer(customer, userId, userRole) {
-    if (userRole === 'admin') {
-      return true;
-    }
-    
-    if (userRole === 'assistant') {
-      return customer.assignedTo && customer.assignedTo._id === userId;
-    }
-    
-    return false;
+  static isValidEmail(email) {
+    return email.includes('@') && email.includes('.');
   }
 
   /**
-   * Check if user can delete customer (admin only)
-   * @param {string} userRole - Current user role
-   * @returns {boolean} Can delete status
+   * Simple phone validation
+   * @param {string} phone - Phone to validate
+   * @returns {boolean} Is valid phone
    */
-  canDeleteCustomer(userRole) {
-    return userRole === 'admin';
-  }
-
-  /**
-   * Check if user can assign customers (admin only)
-   * @param {string} userRole - Current user role
-   * @returns {boolean} Can assign status
-   */
-  canAssignCustomer(userRole) {
-    return userRole === 'admin';
-  }
-
-  /**
-   * Get customer summary stats
-   * @param {string} userId - Current user ID
-   * @param {string} userRole - Current user role
-   * @returns {Promise<Object>} Summary statistics
-   */
-  async getCustomerSummary(userId, userRole) {
-    try {
-      const params = userRole === 'assistant' ? { assignedTo: userId } : {};
-      const response = await this.getCustomers(params);
-      
-      if (!response.success) {
-        throw new Error(response.message);
-      }
-
-      const customers = response.data.customers;
-      const totalCustomers = customers.length;
-      const activeCustomers = customers.filter(c => c.status === 'active').length;
-      const assignedCustomers = customers.filter(c => c.isAssigned).length;
-      const unassignedCustomers = totalCustomers - assignedCustomers;
-
-      return {
-        success: true,
-        data: {
-          totalCustomers,
-          activeCustomers,
-          assignedCustomers,
-          unassignedCustomers,
-          myCustomers: userRole === 'assistant' ? totalCustomers : assignedCustomers
-        }
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: handleApiError(error, 'Failed to fetch customer summary'),
-        data: null
-      };
-    }
+  static isValidPhone(phone) {
+    // Remove all non-digits and check if we have at least 10 digits
+    const digits = phone.replace(/\D/g, '');
+    return digits.length >= 10 && digits.length <= 15;
   }
 }
 
-// Create and export service instance
-const customerService = new CustomerService();
-export default customerService;
+// Export individual methods for convenience
+export const getCustomers = CustomerService.getCustomers;
+export const getCustomerById = CustomerService.getCustomerById;
+export const createCustomer = CustomerService.createCustomer;
+export const updateCustomer = CustomerService.updateCustomer;
+export const deleteCustomer = CustomerService.deleteCustomer;
+
+export default CustomerService;
