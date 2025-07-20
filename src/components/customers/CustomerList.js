@@ -66,9 +66,6 @@ const CustomerList = () => {
   const [assigningCustomer, setAssigningCustomer] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCustomers, setTotalCustomers] = useState(0);
 
   // Role checks
   const isAdmin = hasRole('admin');
@@ -82,8 +79,6 @@ const CustomerList = () => {
 
       // Build parameters for API call
       const params = {
-        page: currentPage,
-        limit: 10,
         search: searchTerm,
         ...(isAssistant && { assignedTo: user.id })
       };
@@ -91,10 +86,6 @@ const CustomerList = () => {
       const response = await CustomerService.getCustomers(params);
       
       setCustomers(response || []);
-      // For now, using basic pagination since the CustomerService returns a simple array
-      // You may need to update this based on your backend response structure
-      setTotalCustomers(response?.length || 0);
-      setTotalPages(Math.ceil((response?.length || 0) / 10));
       
     } catch (error) {
       setError('Failed to load customers');
@@ -102,7 +93,7 @@ const CustomerList = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, searchTerm, user, isAssistant]);
+  }, [searchTerm, user, isAssistant]);
 
   // Fetch assistants for admin assignment dropdown
   const fetchAssistants = useCallback(async () => {
@@ -127,15 +118,10 @@ const CustomerList = () => {
     fetchAssistants();
   }, [fetchAssistants]);
 
-  // Debounced search
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      setCurrentPage(1); // Reset to first page when searching
-      fetchCustomers();
-    }, 300);
-    
-    return () => clearTimeout(timeoutId);
-  }, [searchTerm]);
+  // Handle search input
+  const handleSearchChange = (e) => {
+    setSearchTerm(e.target.value);
+  };
 
   // Handle customer claim (assistants only)
   const handleClaimCustomer = async (customerId) => {
@@ -185,21 +171,6 @@ const CustomerList = () => {
     } catch (error) {
       setError('Failed to delete customer');
       console.error('Error deleting customer:', error);
-    }
-  };
-
-  // Handle page change
-  const handlePageChange = (newPage) => {
-    setCurrentPage(newPage);
-  };
-
-  // Get status badge color
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'active': return 'bg-green-100 text-green-800';
-      case 'inactive': return 'bg-red-100 text-red-800';
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      default: return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -269,7 +240,7 @@ const CustomerList = () => {
           </h1>
           <p className="text-gray-600 mt-1">
             {isAdmin 
-              ? `Manage all customers and assignments (${totalCustomers} total)`
+              ? `Manage all customers and assignments (${customers.length} total)`
               : `Manage your assigned customers (${getMyCustomers()} assigned to you)`
             }
           </p>
@@ -291,7 +262,7 @@ const CustomerList = () => {
             <Users className="w-5 h-5 text-blue-600 mr-2" />
             <div>
               <p className="text-sm font-medium text-gray-600">Total Customers</p>
-              <p className="text-2xl font-bold text-gray-900">{totalCustomers}</p>
+              <p className="text-2xl font-bold text-gray-900">{customers.length}</p>
             </div>
           </div>
         </div>
@@ -331,7 +302,7 @@ const CustomerList = () => {
             type="text"
             placeholder="Search customers by name, email, or phone..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={handleSearchChange}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
         </div>
@@ -350,217 +321,139 @@ const CustomerList = () => {
             </p>
           </div>
         ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Customer
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Contact
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Assignment
+                  </th>
+                  {isAdmin && (
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Customer
+                      Assign To
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Contact
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Assignment
-                    </th>
-                    {isAdmin && (
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Assign To
-                      </th>
-                    )}
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {loading && (
-                    <tr>
-                      <td colSpan={isAdmin ? 6 : 5} className="px-6 py-4 text-center">
-                        <div className="flex justify-center items-center">
-                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                          <span className="ml-2 text-gray-600">Loading...</span>
-                        </div>
-                      </td>
-                    </tr>
                   )}
-                  {customers.map((customer) => (
-                    <tr key={customer.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">
-                            {customer.fullName}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            ID: {customer.id}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {customer.email}
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {loading && (
+                  <tr>
+                    <td colSpan={isAdmin ? 5 : 4} className="px-6 py-4 text-center">
+                      <div className="flex justify-center items-center">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                        <span className="ml-2 text-gray-600">Loading...</span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {customers.map((customer) => (
+                  <tr key={customer.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">
+                          {customer.fullName}
                         </div>
                         <div className="text-sm text-gray-500">
-                          {customer.phone}
+                          ID: {customer.id}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {customer.email}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {customer.phone}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {getAssignmentBadge(customer)}
+                    </td>
+                    {isAdmin && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <select
+                            value={customer.assignedTo?.id || ''}
+                            onChange={(e) => handleAssignCustomer(customer.id, e.target.value || null)}
+                            disabled={assigningCustomer === customer.id}
+                            className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          >
+                            <option value="">Unassigned</option>
+                            {assistants.map((assistant) => (
+                              <option key={assistant.id} value={assistant.id}>
+                                {assistant.name}
+                              </option>
+                            ))}
+                          </select>
+                          {assigningCustomer === customer.id && (
+                            <Clock className="w-4 h-4 animate-spin text-blue-600 ml-2" />
+                          )}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(customer.status || 'active')}`}>
-                          {customer.status || 'active'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {getAssignmentBadge(customer)}
-                      </td>
-                      {isAdmin && (
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <select
-                              value={customer.assignedTo?.id || ''}
-                              onChange={(e) => handleAssignCustomer(customer.id, e.target.value || null)}
-                              disabled={assigningCustomer === customer.id}
-                              className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            >
-                              <option value="">Unassigned</option>
-                              {assistants.map((assistant) => (
-                                <option key={assistant.id} value={assistant.id}>
-                                  {assistant.name}
-                                </option>
-                              ))}
-                            </select>
-                            {assigningCustomer === customer.id && (
-                              <Clock className="w-4 h-4 animate-spin text-blue-600 ml-2" />
+                    )}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex items-center space-x-2">
+                        {/* WhatsApp Message */}
+                        <button
+                          onClick={() => window.open(`https://wa.me/${customer.phone?.replace(/\D/g, '')}`, '_blank')}
+                          className="text-green-600 hover:text-green-900 p-1 rounded"
+                          title="Send WhatsApp message"
+                          disabled={!customer.phone}
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </button>
+
+                        {/* Edit Customer */}
+                        <button
+                          onClick={() => window.location.href = `/customers/${customer.id}/edit`}
+                          className="text-blue-600 hover:text-blue-900 p-1 rounded"
+                          title="Edit customer"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+
+                        {/* Claim Customer (Assistant only, for unassigned customers) */}
+                        {isAssistant && !customer.assignedTo && (
+                          <button
+                            onClick={() => handleClaimCustomer(customer.id)}
+                            disabled={claimingCustomer === customer.id}
+                            className="text-purple-600 hover:text-purple-900 p-1 rounded disabled:opacity-50"
+                            title="Claim customer"
+                          >
+                            {claimingCustomer === customer.id ? (
+                              <Clock className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <UserPlus className="w-4 h-4" />
                             )}
-                          </div>
-                        </td>
-                      )}
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex items-center space-x-2">
-                          {/* WhatsApp Message */}
-                          <button
-                            onClick={() => window.open(`https://wa.me/${customer.phone?.replace(/\D/g, '')}`, '_blank')}
-                            className="text-green-600 hover:text-green-900 p-1 rounded"
-                            title="Send WhatsApp message"
-                            disabled={!customer.phone}
-                          >
-                            <MessageSquare className="w-4 h-4" />
                           </button>
+                        )}
 
-                          {/* Edit Customer */}
+                        {/* Delete (Admin only) */}
+                        {isAdmin && (
                           <button
-                            onClick={() => window.location.href = `/customers/${customer.id}/edit`}
-                            className="text-blue-600 hover:text-blue-900 p-1 rounded"
-                            title="Edit customer"
+                            onClick={() => handleDeleteCustomer(customer.id)}
+                            className="text-red-600 hover:text-red-900 p-1 rounded"
+                            title="Delete customer"
                           >
-                            <Edit className="w-4 h-4" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
-
-                          {/* Claim Customer (Assistant only, for unassigned customers) */}
-                          {isAssistant && !customer.assignedTo && (
-                            <button
-                              onClick={() => handleClaimCustomer(customer.id)}
-                              disabled={claimingCustomer === customer.id}
-                              className="text-purple-600 hover:text-purple-900 p-1 rounded disabled:opacity-50"
-                              title="Claim customer"
-                            >
-                              {claimingCustomer === customer.id ? (
-                                <Clock className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <UserPlus className="w-4 h-4" />
-                              )}
-                            </button>
-                          )}
-
-                          {/* Delete (Admin only) */}
-                          {isAdmin && (
-                            <button
-                              onClick={() => handleDeleteCustomer(customer.id)}
-                              className="text-red-600 hover:text-red-900 p-1 rounded"
-                              title="Delete customer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 flex justify-between sm:hidden">
-                    <button
-                      onClick={() => handlePageChange(currentPage - 1)}
-                      disabled={currentPage <= 1}
-                      className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Previous
-                    </button>
-                    <button
-                      onClick={() => handlePageChange(currentPage + 1)}
-                      disabled={currentPage >= totalPages}
-                      className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Next
-                    </button>
-                  </div>
-                  <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm text-gray-700">
-                        Showing page <span className="font-medium">{currentPage}</span> of{' '}
-                        <span className="font-medium">{totalPages}</span>
-                      </p>
-                    </div>
-                    <div>
-                      <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-                        <button
-                          onClick={() => handlePageChange(currentPage - 1)}
-                          disabled={currentPage <= 1}
-                          className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Previous
-                        </button>
-                        
-                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                          const pageNum = i + 1;
-                          return (
-                            <button
-                              key={pageNum}
-                              onClick={() => handlePageChange(pageNum)}
-                              className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                                pageNum === currentPage
-                                  ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
-                                  : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
-                              }`}
-                            >
-                              {pageNum}
-                            </button>
-                          );
-                        })}
-                        
-                        <button
-                          onClick={() => handlePageChange(currentPage + 1)}
-                          disabled={currentPage >= totalPages}
-                          className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Next
-                        </button>
-                      </nav>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
