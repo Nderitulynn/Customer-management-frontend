@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Search, 
   Plus, 
@@ -13,147 +13,137 @@ import {
   UserX,
   Clock
 } from 'lucide-react';
+import { customerService } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
-const CustomerList = ({ user }) => {
-  // Simplified state management
+// Success Message Component
+const SuccessMessage = ({ message, onDismiss }) => {
+  if (!message) return null;
+  
+  return (
+    <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded relative mb-4">
+      <span className="block sm:inline">{message}</span>
+      {onDismiss && (
+        <button
+          onClick={onDismiss}
+          className="absolute top-0 bottom-0 right-0 px-4 py-3"
+        >
+          ×
+        </button>
+      )}
+    </div>
+  );
+};
+
+// Error Message Component
+const ErrorMessage = ({ message, onDismiss }) => {
+  if (!message) return null;
+  
+  return (
+    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded relative mb-4">
+      <span className="block sm:inline">{message}</span>
+      {onDismiss && (
+        <button
+          onClick={onDismiss}
+          className="absolute top-0 bottom-0 right-0 px-4 py-3"
+        >
+          ×
+        </button>
+      )}
+    </div>
+  );
+};
+
+const CustomerList = () => {
+  const { user, hasRole } = useAuth();
+  
+  // State management
   const [customers, setCustomers] = useState([]);
+  const [assistants, setAssistants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [claimingCustomer, setClaimingCustomer] = useState(null);
   const [assigningCustomer, setAssigningCustomer] = useState(null);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCustomers, setTotalCustomers] = useState(0);
 
   // Role checks
-  const isAdmin = user?.role === 'admin';
-  const isAssistant = user?.role === 'assistant';
+  const isAdmin = hasRole('admin');
+  const isAssistant = hasRole('assistant');
 
-  // Mock customer data
-  const mockCustomers = [
-    {
-      id: 1,
-      fullName: 'John Doe',
-      email: 'john@example.com',
-      phone: '+1234567890',
-      status: 'active',
-      assignedTo: null,
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: 2,
-      fullName: 'Jane Smith',
-      email: 'jane@example.com',
-      phone: '+1234567891',
-      status: 'pending',
-      assignedTo: { id: 1, name: 'Admin User' },
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: 3,
-      fullName: 'Bob Johnson',
-      email: 'bob@example.com',
-      phone: '+1234567892',
-      status: 'active',
-      assignedTo: { id: user?.id, name: user?.name },
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: 4,
-      fullName: 'Alice Brown',
-      email: 'alice@example.com',
-      phone: '+1234567893',
-      status: 'inactive',
-      assignedTo: null,
-      createdAt: new Date().toISOString()
+  // Fetch customers with real API
+  const fetchCustomers = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      // Build parameters for API call
+      const params = {
+        page: currentPage,
+        limit: 10,
+        search: searchTerm,
+        ...(isAssistant && { assignedTo: user.id })
+      };
+
+      const response = await customerService.getAll(params);
+      
+      setCustomers(response.customers || []);
+      setTotalPages(Math.ceil((response.total || 0) / 10));
+      setTotalCustomers(response.total || 0);
+      
+    } catch (error) {
+      setError('Failed to load customers');
+      console.error('Error fetching customers:', error);
+    } finally {
+      setLoading(false);
     }
-  ];
+  }, [currentPage, searchTerm, user, isAssistant]);
 
-  // Mock assistants data (for admin assignment dropdown)
-  const mockAssistants = [
-    { id: 1, name: 'Admin User' },
-    { id: 2, name: 'Assistant One' },
-    { id: 3, name: 'Assistant Two' }
-  ];
-
-  // Mock API functions
-  const mockApi = {
-    getCustomers: () => {
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          let filteredCustomers = mockCustomers;
-          
-          // Filter based on user role
-          if (isAssistant) {
-            filteredCustomers = mockCustomers.filter(c => 
-              !c.assignedTo || c.assignedTo.id === user.id
-            );
-          }
-          
-          resolve({ success: true, data: filteredCustomers });
-        }, 500);
-      });
-    },
-
-    assignCustomer: (customerId, assistantId) => {
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          const customerIndex = customers.findIndex(c => c.id === customerId);
-          if (customerIndex !== -1) {
-            const updatedCustomers = [...customers];
-            const assistant = mockAssistants.find(a => a.id === assistantId);
-            updatedCustomers[customerIndex] = {
-              ...updatedCustomers[customerIndex],
-              assignedTo: assistant ? { id: assistant.id, name: assistant.name } : null
-            };
-            setCustomers(updatedCustomers);
-          }
-          resolve({ success: true });
-        }, 800);
-      });
-    },
-
-    deleteCustomer: (customerId) => {
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          setCustomers(prev => prev.filter(c => c.id !== customerId));
-          resolve({ success: true });
-        }, 500);
-      });
+  // Fetch assistants for admin assignment dropdown
+  const fetchAssistants = useCallback(async () => {
+    if (!isAdmin) return;
+    
+    try {
+      const response = await customerService.getAssistants();
+      setAssistants(response.assistants || []);
+    } catch (error) {
+      console.error('Error fetching assistants:', error);
     }
-  };
+  }, [isAdmin]);
 
-  // Fetch customers on component mount
+  // Initial data fetch
   useEffect(() => {
-    const fetchCustomers = async () => {
-      try {
-        setLoading(true);
-        const response = await mockApi.getCustomers();
-        if (response.success) {
-          setCustomers(response.data);
-        }
-      } catch (error) {
-        console.error('Error fetching customers:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchCustomers();
-  }, [isAssistant, user.id]);
+  }, [fetchCustomers]);
 
-  // Filter customers based on search term
-  const filteredCustomers = customers.filter(customer => 
-    customer.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.phone.includes(searchTerm)
-  );
+  useEffect(() => {
+    fetchAssistants();
+  }, [fetchAssistants]);
+
+  // Debounced search
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setCurrentPage(1); // Reset to first page when searching
+      fetchCustomers();
+    }, 300);
+    
+    return () => clearTimeout(timeoutId);
+  }, [searchTerm]);
 
   // Handle customer claim (assistants only)
   const handleClaimCustomer = async (customerId) => {
     try {
       setClaimingCustomer(customerId);
-      await mockApi.assignCustomer(customerId, user.id);
-      alert('Customer claimed successfully!');
+      await customerService.assignCustomer(customerId, user.id);
+      setSuccess('Customer claimed successfully!');
+      setTimeout(() => setSuccess(''), 3000);
+      await fetchCustomers();
     } catch (error) {
-      alert('Failed to claim customer');
+      setError('Failed to claim customer');
+      console.error('Error claiming customer:', error);
     } finally {
       setClaimingCustomer(null);
     }
@@ -163,10 +153,13 @@ const CustomerList = ({ user }) => {
   const handleAssignCustomer = async (customerId, assistantId) => {
     try {
       setAssigningCustomer(customerId);
-      await mockApi.assignCustomer(customerId, assistantId);
-      alert(assistantId ? 'Customer assigned successfully!' : 'Customer unassigned successfully!');
+      await customerService.assignCustomer(customerId, assistantId || null);
+      setSuccess(assistantId ? 'Customer assigned successfully!' : 'Customer unassigned successfully!');
+      setTimeout(() => setSuccess(''), 3000);
+      await fetchCustomers();
     } catch (error) {
-      alert('Failed to assign customer');
+      setError('Failed to assign customer');
+      console.error('Error assigning customer:', error);
     } finally {
       setAssigningCustomer(null);
     }
@@ -179,11 +172,19 @@ const CustomerList = ({ user }) => {
     }
 
     try {
-      await mockApi.deleteCustomer(customerId);
-      alert('Customer deleted successfully!');
+      await customerService.delete(customerId);
+      setSuccess('Customer deleted successfully!');
+      setTimeout(() => setSuccess(''), 3000);
+      await fetchCustomers();
     } catch (error) {
-      alert('Failed to delete customer');
+      setError('Failed to delete customer');
+      console.error('Error deleting customer:', error);
     }
+  };
+
+  // Handle page change
+  const handlePageChange = (newPage) => {
+    setCurrentPage(newPage);
   };
 
   // Get status badge color
@@ -207,7 +208,7 @@ const CustomerList = ({ user }) => {
             : 'bg-green-100 text-green-800'
         }`}>
           <UserCheck className="w-3 h-3 mr-1" />
-          {isAssignedToCurrentUser ? 'You' : 'Assigned'}
+          {isAssignedToCurrentUser ? 'You' : customer.assignedTo.name || 'Assigned'}
         </span>
       );
     } else {
@@ -221,12 +222,20 @@ const CustomerList = ({ user }) => {
   };
 
   // Get customer counts
-  const getTotalCustomers = () => customers.length;
   const getMyCustomers = () => customers.filter(c => c.assignedTo?.id === user.id).length;
   const getUnassignedCustomers = () => customers.filter(c => !c.assignedTo).length;
+  const getAssignedCustomers = () => customers.filter(c => c.assignedTo).length;
+
+  // Auto-dismiss messages
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   // Loading state
-  if (loading) {
+  if (loading && customers.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -236,6 +245,16 @@ const CustomerList = ({ user }) => {
 
   return (
     <div className="space-y-6">
+      {/* Messages */}
+      <SuccessMessage 
+        message={success} 
+        onDismiss={() => setSuccess('')} 
+      />
+      <ErrorMessage 
+        message={error} 
+        onDismiss={() => setError('')} 
+      />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -244,7 +263,7 @@ const CustomerList = ({ user }) => {
           </h1>
           <p className="text-gray-600 mt-1">
             {isAdmin 
-              ? `Manage all customers and assignments (${getTotalCustomers()} total)`
+              ? `Manage all customers and assignments (${totalCustomers} total)`
               : `Manage your assigned customers (${getMyCustomers()} assigned to you)`
             }
           </p>
@@ -266,7 +285,7 @@ const CustomerList = ({ user }) => {
             <Users className="w-5 h-5 text-blue-600 mr-2" />
             <div>
               <p className="text-sm font-medium text-gray-600">Total Customers</p>
-              <p className="text-2xl font-bold text-gray-900">{getTotalCustomers()}</p>
+              <p className="text-2xl font-bold text-gray-900">{totalCustomers}</p>
             </div>
           </div>
         </div>
@@ -279,7 +298,7 @@ const CustomerList = ({ user }) => {
                 {isAdmin ? 'Assigned' : 'My Customers'}
               </p>
               <p className="text-2xl font-bold text-gray-900">
-                {isAdmin ? getTotalCustomers() - getUnassignedCustomers() : getMyCustomers()}
+                {isAdmin ? getAssignedCustomers() : getMyCustomers()}
               </p>
             </div>
           </div>
@@ -314,7 +333,7 @@ const CustomerList = ({ user }) => {
 
       {/* Customer List */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        {filteredCustomers.length === 0 ? (
+        {customers.length === 0 && !loading ? (
           <div className="text-center py-12">
             <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
@@ -325,134 +344,217 @@ const CustomerList = ({ user }) => {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Customer
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Contact
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Assignment
-                  </th>
-                  {isAdmin && (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Assign To
+                      Customer
                     </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Contact
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Assignment
+                    </th>
+                    {isAdmin && (
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Assign To
+                      </th>
+                    )}
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {loading && (
+                    <tr>
+                      <td colSpan={isAdmin ? 6 : 5} className="px-6 py-4 text-center">
+                        <div className="flex justify-center items-center">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                          <span className="ml-2 text-gray-600">Loading...</span>
+                        </div>
+                      </td>
+                    </tr>
                   )}
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredCustomers.map((customer) => (
-                  <tr key={customer.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">
-                          {customer.fullName}
+                  {customers.map((customer) => (
+                    <tr key={customer.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">
+                            {customer.fullName}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            ID: {customer.id}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {customer.email}
                         </div>
                         <div className="text-sm text-gray-500">
-                          ID: {customer.id}
+                          {customer.phone}
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
-                        {customer.email}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {customer.phone}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(customer.status)}`}>
-                        {customer.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getAssignmentBadge(customer)}
-                    </td>
-                    {isAdmin && (
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <select
-                          value={customer.assignedTo?.id || ''}
-                          onChange={(e) => handleAssignCustomer(customer.id, e.target.value || null)}
-                          disabled={assigningCustomer === customer.id}
-                          className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                          <option value="">Unassigned</option>
-                          {mockAssistants.map((assistant) => (
-                            <option key={assistant.id} value={assistant.id}>
-                              {assistant.name}
-                            </option>
-                          ))}
-                        </select>
-                        {assigningCustomer === customer.id && (
-                          <Clock className="w-4 h-4 animate-spin text-blue-600 ml-2 inline" />
-                        )}
                       </td>
-                    )}
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex items-center space-x-2">
-                        {/* WhatsApp Message */}
-                        <button
-                          onClick={() => window.open(`https://wa.me/${customer.phone.replace(/\D/g, '')}`, '_blank')}
-                          className="text-green-600 hover:text-green-900 p-1 rounded"
-                          title="Send WhatsApp message"
-                        >
-                          <MessageSquare className="w-4 h-4" />
-                        </button>
-
-                        {/* Edit Customer */}
-                        <button
-                          onClick={() => window.location.href = `/customers/${customer.id}/edit`}
-                          className="text-blue-600 hover:text-blue-900 p-1 rounded"
-                          title="Edit customer"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-
-                        {/* Claim Customer (Assistant only, for unassigned customers) */}
-                        {isAssistant && !customer.assignedTo && (
-                          <button
-                            onClick={() => handleClaimCustomer(customer.id)}
-                            disabled={claimingCustomer === customer.id}
-                            className="text-purple-600 hover:text-purple-900 p-1 rounded disabled:opacity-50"
-                            title="Claim customer"
-                          >
-                            {claimingCustomer === customer.id ? (
-                              <Clock className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <UserPlus className="w-4 h-4" />
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(customer.status)}`}>
+                          {customer.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {getAssignmentBadge(customer)}
+                      </td>
+                      {isAdmin && (
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <select
+                              value={customer.assignedTo?.id || ''}
+                              onChange={(e) => handleAssignCustomer(customer.id, e.target.value || null)}
+                              disabled={assigningCustomer === customer.id}
+                              className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                              <option value="">Unassigned</option>
+                              {assistants.map((assistant) => (
+                                <option key={assistant.id} value={assistant.id}>
+                                  {assistant.name}
+                                </option>
+                              ))}
+                            </select>
+                            {assigningCustomer === customer.id && (
+                              <Clock className="w-4 h-4 animate-spin text-blue-600 ml-2" />
                             )}
-                          </button>
-                        )}
-
-                        {/* Delete (Admin only) */}
-                        {isAdmin && (
+                          </div>
+                        </td>
+                      )}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <div className="flex items-center space-x-2">
+                          {/* WhatsApp Message */}
                           <button
-                            onClick={() => handleDeleteCustomer(customer.id)}
-                            className="text-red-600 hover:text-red-900 p-1 rounded"
-                            title="Delete customer"
+                            onClick={() => window.open(`https://wa.me/${customer.phone?.replace(/\D/g, '')}`, '_blank')}
+                            className="text-green-600 hover:text-green-900 p-1 rounded"
+                            title="Send WhatsApp message"
+                            disabled={!customer.phone}
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <MessageSquare className="w-4 h-4" />
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+
+                          {/* Edit Customer */}
+                          <button
+                            onClick={() => window.location.href = `/customers/${customer.id}/edit`}
+                            className="text-blue-600 hover:text-blue-900 p-1 rounded"
+                            title="Edit customer"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+
+                          {/* Claim Customer (Assistant only, for unassigned customers) */}
+                          {isAssistant && !customer.assignedTo && (
+                            <button
+                              onClick={() => handleClaimCustomer(customer.id)}
+                              disabled={claimingCustomer === customer.id}
+                              className="text-purple-600 hover:text-purple-900 p-1 rounded disabled:opacity-50"
+                              title="Claim customer"
+                            >
+                              {claimingCustomer === customer.id ? (
+                                <Clock className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <UserPlus className="w-4 h-4" />
+                              )}
+                            </button>
+                          )}
+
+                          {/* Delete (Admin only) */}
+                          {isAdmin && (
+                            <button
+                              onClick={() => handleDeleteCustomer(customer.id)}
+                              className="text-red-600 hover:text-red-900 p-1 rounded"
+                              title="Delete customer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 flex justify-between sm:hidden">
+                    <button
+                      onClick={() => handlePageChange(currentPage - 1)}
+                      disabled={currentPage <= 1}
+                      className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      onClick={() => handlePageChange(currentPage + 1)}
+                      disabled={currentPage >= totalPages}
+                      className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
+                  <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm text-gray-700">
+                        Showing page <span className="font-medium">{currentPage}</span> of{' '}
+                        <span className="font-medium">{totalPages}</span>
+                      </p>
+                    </div>
+                    <div>
+                      <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                        <button
+                          onClick={() => handlePageChange(currentPage - 1)}
+                          disabled={currentPage <= 1}
+                          className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Previous
+                        </button>
+                        
+                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                          const pageNum = i + 1;
+                          return (
+                            <button
+                              key={pageNum}
+                              onClick={() => handlePageChange(pageNum)}
+                              className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
+                                pageNum === currentPage
+                                  ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
+                                  : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                              }`}
+                            >
+                              {pageNum}
+                            </button>
+                          );
+                        })}
+                        
+                        <button
+                          onClick={() => handlePageChange(currentPage + 1)}
+                          disabled={currentPage >= totalPages}
+                          className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Next
+                        </button>
+                      </nav>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
