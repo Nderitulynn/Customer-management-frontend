@@ -1,17 +1,24 @@
-import { apiHelpers as api, API_ENDPOINTS, handleApiError } from './api';
+import { apiHelpers, API_ENDPOINTS, handleApiError } from './api';
 
-// Assistant Service - Handles all assistant-related API operations
+/**
+ * Assistant Service for School Project
+ * Handles assistant management operations (Admin Only)
+ * Complete CRUD operations for assistant management
+ */
 export class AssistantService {
   
-  // Get all assistants
+  /**
+   * Get all assistants
+   * @returns {Promise<Array>} List of assistants
+   */
   static async getAllAssistants() {
     try {
-      const response = await api.get(API_ENDPOINTS.USERS.LIST);
+      const response = await apiHelpers.get(API_ENDPOINTS.USERS.LIST);
       
       // Filter only assistants from the response
-      const assistants = Array.isArray(response) ? response : response.users || [];
+      const users = Array.isArray(response) ? response : response.users || [];
       
-      return assistants
+      return users
         .filter(user => user.role === 'assistant')
         .map(AssistantService.transformAssistantData);
     } catch (error) {
@@ -19,231 +26,108 @@ export class AssistantService {
     }
   }
 
-  // Create a new assistant
+  /**
+   * Create a new assistant
+   * @param {Object} assistantData - Assistant data
+   * @param {string} assistantData.firstName - First name
+   * @param {string} assistantData.lastName - Last name  
+   * @param {string} assistantData.email - Email address
+   * @returns {Promise<Object>} Created assistant
+   */
   static async createAssistant(assistantData) {
     try {
-      // Validate required fields
+      // Basic validation
       AssistantService.validateAssistantData(assistantData);
 
       const payload = {
         firstName: assistantData.firstName.trim(),
         lastName: assistantData.lastName.trim(),
         email: assistantData.email.trim().toLowerCase(),
-        role: 'assistant' // Ensure role is always assistant
+        role: 'assistant'
       };
 
-      const response = await api.post(API_ENDPOINTS.USERS.CREATE, payload);
+      const response = await apiHelpers.post(API_ENDPOINTS.USERS.CREATE, payload);
       
-      return {
-        success: true,
-        message: 'Assistant created successfully',
-        assistant: AssistantService.transformAssistantData(response.assistant || response),
-        tempPassword: response.tempPassword // For displaying to admin
-      };
+      return AssistantService.transformAssistantData(response);
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to create assistant'));
     }
   }
 
-  // Update an existing assistant
-  static async updateAssistant(id, updateData) {
-    try {
-      if (!id) {
-        throw new Error('Assistant ID is required');
-      }
-
-      // Prepare update payload (only include fields that can be updated)
-      const payload = {};
-      
-      if (updateData.firstName) payload.firstName = updateData.firstName.trim();
-      if (updateData.lastName) payload.lastName = updateData.lastName.trim();
-      if (updateData.email) payload.email = updateData.email.trim().toLowerCase();
-      if (updateData.phone) payload.phone = updateData.phone.trim();
-      if (updateData.avatar) payload.avatar = updateData.avatar;
-
-      const response = await api.put(API_ENDPOINTS.USERS.UPDATE(id), payload);
-      
-      return {
-        success: true,
-        message: 'Assistant updated successfully',
-        assistant: AssistantService.transformAssistantData(response.assistant || response)
-      };
-    } catch (error) {
-      throw new Error(handleApiError(error, 'Failed to update assistant'));
-    }
-  }
-
-  // Delete an assistant
+  /**
+   * Delete an assistant
+   * @param {string} id - Assistant ID
+   * @returns {Promise<boolean>} Success status
+   */
   static async deleteAssistant(id) {
     try {
       if (!id) {
         throw new Error('Assistant ID is required');
       }
 
-      await api.delete(API_ENDPOINTS.USERS.DELETE(id));
+      await apiHelpers.delete(API_ENDPOINTS.USERS.DELETE(id));
       
-      return {
-        success: true,
-        message: 'Assistant deleted successfully'
-      };
+      return true;
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to delete assistant'));
     }
   }
 
-  // Toggle assistant status (active/inactive)
-  static async toggleAssistantStatus(id) {
+  /**
+   * Update an existing assistant
+   * @param {string} id - Assistant ID
+   * @param {Object} updateData - Data to update
+   * @returns {Promise<Object>} Updated assistant
+   */
+  static async updateAssistant(id, updateData) {
     try {
       if (!id) {
         throw new Error('Assistant ID is required');
       }
 
-      const response = await api.put(`${API_ENDPOINTS.USERS.UPDATE(id)}/status`);
+      // Prepare update payload
+      const payload = {};
       
-      return {
-        success: true,
-        message: `Assistant ${response.isActive ? 'activated' : 'deactivated'} successfully`,
-        assistant: AssistantService.transformAssistantData(response.assistant || response)
-      };
+      if (updateData.firstName) payload.firstName = updateData.firstName.trim();
+      if (updateData.lastName) payload.lastName = updateData.lastName.trim();
+      if (updateData.email) payload.email = updateData.email.trim().toLowerCase();
+
+      const response = await apiHelpers.put(API_ENDPOINTS.USERS.UPDATE(id), payload);
+      
+      return AssistantService.transformAssistantData(response);
     } catch (error) {
-      throw new Error(handleApiError(error, 'Failed to toggle assistant status'));
+      throw new Error(handleApiError(error, 'Failed to update assistant'));
     }
   }
 
-  // Reset assistant password
-  static async resetAssistantPassword(id) {
-    try {
-      if (!id) {
-        throw new Error('Assistant ID is required');
-      }
-
-      const response = await api.put(`${API_ENDPOINTS.USERS.UPDATE(id)}/reset-password`);
-      
-      return {
-        success: true,
-        message: 'Password reset successfully. New password sent to assistant email.',
-        tempPassword: response.tempPassword // For admin notification
-      };
-    } catch (error) {
-      throw new Error(handleApiError(error, 'Failed to reset assistant password'));
-    }
-  }
-
-  // Get assistant by ID
+  /**
+   * Get assistant by ID
+   * @param {string} id - Assistant ID
+   * @returns {Promise<Object>} Assistant data
+   */
   static async getAssistantById(id) {
     try {
       if (!id) {
         throw new Error('Assistant ID is required');
       }
 
-      const response = await api.get(`${API_ENDPOINTS.USERS.BASE}/${id}`);
+      const response = await apiHelpers.get(`${API_ENDPOINTS.USERS.BASE}/${id}`);
       
       if (response.role !== 'assistant') {
         throw new Error('User is not an assistant');
       }
 
-      return {
-        success: true,
-        assistant: AssistantService.transformAssistantData(response)
-      };
+      return AssistantService.transformAssistantData(response);
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to fetch assistant'));
     }
   }
 
-  // Get assistant statistics
-  static async getAssistantStats(id) {
-    try {
-      if (!id) {
-        throw new Error('Assistant ID is required');
-      }
-
-      // This would need corresponding backend endpoint
-      const response = await api.get(`${API_ENDPOINTS.USERS.BASE}/${id}/stats`);
-      
-      return {
-        success: true,
-        stats: response
-      };
-    } catch (error) {
-      throw new Error(handleApiError(error, 'Failed to fetch assistant statistics'));
-    }
-  }
-
-  // Search assistants
-  static async searchAssistants(query, filters = {}) {
-    try {
-      const params = new URLSearchParams();
-      
-      if (query) params.append('search', query);
-      if (filters.status) params.append('status', filters.status);
-      if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
-      if (filters.dateTo) params.append('dateTo', filters.dateTo);
-      
-      const response = await api.get(`${API_ENDPOINTS.USERS.LIST}?${params.toString()}`);
-      
-      const assistants = Array.isArray(response) ? response : response.users || [];
-      
-      return assistants
-        .filter(user => user.role === 'assistant')
-        .map(AssistantService.transformAssistantData);
-    } catch (error) {
-      throw new Error(handleApiError(error, 'Failed to search assistants'));
-    }
-  }
-
-  // Bulk operations
-  static async bulkUpdateAssistants(assistantIds, updateData) {
-    try {
-      if (!Array.isArray(assistantIds) || assistantIds.length === 0) {
-        throw new Error('Assistant IDs array is required');
-      }
-
-      const payload = {
-        assistantIds,
-        updateData
-      };
-
-      const response = await api.put(`${API_ENDPOINTS.USERS.BASE}/bulk-update`, payload);
-      
-      return {
-        success: true,
-        message: `${assistantIds.length} assistants updated successfully`,
-        assistants: response.assistants?.map(AssistantService.transformAssistantData) || []
-      };
-    } catch (error) {
-      throw new Error(handleApiError(error, 'Failed to update assistants'));
-    }
-  }
-
-  // Export assistants data
-  static async exportAssistants(format = 'csv') {
-    try {
-      const response = await api.get(`${API_ENDPOINTS.USERS.BASE}/export?format=${format}`, {
-        responseType: 'blob'
-      });
-
-      // Create download link
-      const blob = new Blob([response], { type: 'application/octet-stream' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `assistants_${new Date().toISOString().split('T')[0]}.${format}`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-
-      return {
-        success: true,
-        message: 'Assistants data exported successfully'
-      };
-    } catch (error) {
-      throw new Error(handleApiError(error, 'Failed to export assistants data'));
-    }
-  }
-
-  // Transform assistant data for UI consistency
+  /**
+   * Transform assistant data for consistent UI usage
+   * @param {Object} assistant - Raw assistant data
+   * @returns {Object} Transformed assistant data
+   */
   static transformAssistantData(assistant) {
     if (!assistant) return null;
 
@@ -252,106 +136,52 @@ export class AssistantService {
       firstName: assistant.firstName || '',
       lastName: assistant.lastName || '',
       email: assistant.email || '',
-      phone: assistant.phone || '',
-      avatar: assistant.avatar || null,
       role: assistant.role || 'assistant',
-      isActive: assistant.isActive ?? true,
-      customerCount: assistant.customerCount || 0,
-      activeChats: assistant.activeChats || 0,
-      lastLogin: assistant.lastLogin || null,
-      createdAt: assistant.createdAt || new Date().toISOString(),
-      updatedAt: assistant.updatedAt || new Date().toISOString(),
-      mustChangePassword: assistant.mustChangePassword || false,
-      fullName: `${assistant.firstName || ''} ${assistant.lastName || ''}`.trim(),
-      initials: AssistantService.getInitials(assistant.firstName, assistant.lastName),
-      status: assistant.isActive ? 'active' : 'inactive',
-      statusColor: assistant.isActive ? 'green' : 'red',
-      lastLoginFormatted: assistant.lastLogin ? new Date(assistant.lastLogin).toLocaleDateString() : 'Never'
+      isActive: assistant.isActive !== false, // Default to true
+      createdAt: assistant.createdAt || null,
+      updatedAt: assistant.updatedAt || null
     };
   }
 
-  // Validate assistant data
+  /**
+   * Validate assistant data
+   * @param {Object} data - Assistant data to validate
+   * @throws {Error} Validation error
+   */
   static validateAssistantData(data) {
-    const errors = [];
-
-    if (!data.firstName?.trim()) {
-      errors.push('First name is required');
+    if (!data.firstName || !data.firstName.trim()) {
+      throw new Error('First name is required');
     }
 
-    if (!data.lastName?.trim()) {
-      errors.push('Last name is required');
+    if (!data.lastName || !data.lastName.trim()) {
+      throw new Error('Last name is required');
     }
 
-    if (!data.email?.trim()) {
-      errors.push('Email is required');
-    } else if (!AssistantService.isValidEmail(data.email.trim())) {
-      errors.push('Please enter a valid email address');
+    if (!data.email || !data.email.trim()) {
+      throw new Error('Email is required');
     }
 
-    if (errors.length > 0) {
-      throw new Error(errors.join(', '));
+    if (!AssistantService.isValidEmail(data.email.trim())) {
+      throw new Error('Please enter a valid email address');
     }
   }
 
-  // Email validation helper
+  /**
+   * Simple email validation
+   * @param {string} email - Email to validate
+   * @returns {boolean} Is valid email
+   */
   static isValidEmail(email) {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  }
-
-  // Get initials helper
-  static getInitials(firstName, lastName) {
-    const first = firstName?.charAt(0)?.toUpperCase() || '';
-    const last = lastName?.charAt(0)?.toUpperCase() || '';
-    return `${first}${last}`;
-  }
-
-  // Format date helper
-  static formatDate(dateString) {
-    if (!dateString) return 'N/A';
-    
-    try {
-      return new Date(dateString).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
-    } catch (error) {
-      return 'N/A';
-    }
-  }
-
-  // Format time helper
-  static formatDateTime(dateString) {
-    if (!dateString) return 'N/A';
-    
-    try {
-      return new Date(dateString).toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    } catch (error) {
-      return 'N/A';
-    }
+    return email.includes('@') && email.includes('.');
   }
 }
 
-// Export individual functions for convenience
-export const {
-  getAllAssistants,
-  createAssistant,
-  updateAssistant,
-  deleteAssistant,
-  toggleAssistantStatus,
-  resetAssistantPassword,
-  getAssistantById,
-  getAssistantStats,
-  searchAssistants,
-  bulkUpdateAssistants,
-  exportAssistants
-} = AssistantService;
+// Export individual methods for convenience
+// This allows importing like: import { deleteAssistant } from './assistantService'
+export const createAssistant = AssistantService.createAssistant;
+export const getAllAssistants = AssistantService.getAllAssistants;
+export const deleteAssistant = AssistantService.deleteAssistant;
+export const updateAssistant = AssistantService.updateAssistant;
+export const getAssistantById = AssistantService.getAssistantById;
 
 export default AssistantService;
