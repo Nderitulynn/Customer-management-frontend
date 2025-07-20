@@ -46,7 +46,9 @@ export class CustomerService {
 
       const response = await apiHelpers.get(API_ENDPOINTS.CUSTOMERS.GET(customerId));
       
-      return CustomerService.transformCustomerData(response);
+      // Extract customer data from wrapped response
+      const customer = response.data || response;
+      return CustomerService.transformCustomerData(customer);
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to fetch customer'));
     }
@@ -75,7 +77,9 @@ export class CustomerService {
 
       const response = await apiHelpers.post(API_ENDPOINTS.CUSTOMERS.CREATE, payload);
       
-      return CustomerService.transformCustomerData(response);
+      // Extract customer data from wrapped response
+      const customer = response.data || response;
+      return CustomerService.transformCustomerData(customer);
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to create customer'));
     }
@@ -108,7 +112,9 @@ export class CustomerService {
 
       const response = await apiHelpers.put(API_ENDPOINTS.CUSTOMERS.UPDATE(customerId), payload);
       
-      return CustomerService.transformCustomerData(response);
+      // Extract customer data from wrapped response
+      const customer = response.data || response;
+      return CustomerService.transformCustomerData(customer);
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to update customer'));
     }
