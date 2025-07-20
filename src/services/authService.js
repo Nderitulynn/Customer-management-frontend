@@ -103,21 +103,23 @@ class AuthService {
   }
 
   /**
-   * Register new user
-   * @param {Object} userData - User registration data
-   * @param {string} userData.firstName - User first name
-   * @param {string} userData.lastName - User last name
-   * @param {string} userData.email - User email
-   * @param {string} userData.password - User password
-   * @param {string} userData.role - User role (admin/assistant)
+   * Register new admin (one-time setup)
+   * @param {Object} adminData - Admin registration data
+   * @param {string} adminData.firstName - Admin first name
+   * @param {string} adminData.lastName - Admin last name
+   * @param {string} adminData.email - Admin email
+   * @param {string} adminData.password - Admin password
    * @returns {Promise<Object>} Registration response
    */
-  async register(userData) {
+  async registerAdmin(adminData) {
     try {
       // Basic validation
-      this.validateUserData(userData);
+      this.validateAdminData(adminData);
 
-      const response = await apiHelpers.post(API_ENDPOINTS.AUTH.REGISTER, userData);
+      const response = await apiHelpers.post(API_ENDPOINTS.AUTH.REGISTER_ADMIN, {
+        ...adminData,
+        role: 'admin' // Ensure role is set to admin
+      });
 
       const { user, token } = response.data || response;
 
@@ -133,13 +135,13 @@ class AuthService {
           token,
           role: user.role
         },
-        message: 'Registration successful'
+        message: 'Admin registration successful'
       };
 
     } catch (error) {
       return {
         success: false,
-        message: handleApiError(error, 'Registration failed'),
+        message: handleApiError(error, 'Admin registration failed'),
         data: null
       };
     }
@@ -218,71 +220,6 @@ class AuthService {
       return {
         success: false,
         message: handleApiError(error, 'Password change failed')
-      };
-    }
-  }
-
-  /**
-   * Request password reset
-   * @param {string} email - User email
-   * @returns {Promise<Object>} Password reset response
-   */
-  async forgotPassword(email) {
-    try {
-      if (!email) {
-        throw new Error('Email is required');
-      }
-
-      const response = await apiHelpers.post(API_ENDPOINTS.AUTH.FORGOT_PASSWORD, {
-        email: email.toLowerCase().trim()
-      });
-
-      return {
-        success: true,
-        message: 'Password reset instructions sent to your email'
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: handleApiError(error, 'Password reset request failed')
-      };
-    }
-  }
-
-  /**
-   * Reset password with token
-   * @param {Object} resetData - Password reset data
-   * @param {string} resetData.token - Reset token
-   * @param {string} resetData.password - New password
-   * @returns {Promise<Object>} Password reset response
-   */
-  async resetPassword(resetData) {
-    try {
-      const { token, password } = resetData;
-
-      if (!token || !password) {
-        throw new Error('Reset token and new password are required');
-      }
-
-      if (password.length < 6) {
-        throw new Error('Password must be at least 6 characters long');
-      }
-
-      const response = await apiHelpers.post(API_ENDPOINTS.AUTH.RESET_PASSWORD, {
-        token,
-        password
-      });
-
-      return {
-        success: true,
-        message: 'Password reset successful'
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: handleApiError(error, 'Password reset failed')
       };
     }
   }
@@ -375,63 +312,6 @@ class AuthService {
   }
 
   /**
-   * Check if user can edit customer
-   * @param {Object} customer - Customer object
-   * @returns {boolean} Edit permission status
-   */
-  canEditCustomer(customer) {
-    if (!this.isAuthenticated()) {
-      return false;
-    }
-
-    const user = this.getUser();
-    
-    // Admin can edit all customers
-    if (user.role === 'admin') {
-      return true;
-    }
-    
-    // Assistant can only edit assigned customers
-    if (user.role === 'assistant') {
-      return customer.assignedTo && customer.assignedTo._id === user._id;
-    }
-    
-    return false;
-  }
-
-  /**
-   * Check if user can delete customer
-   * @returns {boolean} Delete permission status
-   */
-  canDeleteCustomer() {
-    return this.isAdmin();
-  }
-
-  /**
-   * Check if user can assign customers
-   * @returns {boolean} Assignment permission status
-   */
-  canAssignCustomer() {
-    return this.isAdmin();
-  }
-
-  /**
-   * Check if user can create customers
-   * @returns {boolean} Creation permission status
-   */
-  canCreateCustomer() {
-    return this.isAuthenticated();
-  }
-
-  /**
-   * Check if user can view all customers
-   * @returns {boolean} View all permission status
-   */
-  canViewAllCustomers() {
-    return this.isAdmin();
-  }
-
-  /**
    * Get authorization header for API requests
    * @returns {Object} Authorization header object
    */
@@ -469,106 +349,49 @@ class AuthService {
   }
 
   /**
-   * Initialize authentication state
-   * @returns {Promise<Object>} Initialization result
-   */
-  async initializeAuth() {
-    try {
-      // Check if we have a token
-      if (!this.isAuthenticated()) {
-        return {
-          success: false,
-          message: 'No authentication data found'
-        };
-      }
-
-      // Check if token is expired
-      if (this.isTokenExpired()) {
-        this.clearAuthData();
-        return {
-          success: false,
-          message: 'Token expired'
-        };
-      }
-
-      // Verify token with backend
-      const verificationResult = await this.verifyToken();
-      
-      if (verificationResult.success) {
-        return {
-          success: true,
-          data: {
-            user: this.getUser(),
-            role: this.getUser().role
-          },
-          message: 'Authentication initialized successfully'
-        };
-      }
-
-      return verificationResult;
-
-    } catch (error) {
-      this.clearAuthData();
-      return {
-        success: false,
-        message: handleApiError(error, 'Authentication initialization failed')
-      };
-    }
-  }
-
-  /**
-   * Validate user data for registration
-   * @param {Object} userData - User data to validate
+   * Validate admin data for registration
+   * @param {Object} adminData - Admin data to validate
    * @throws {Error} Validation error
    */
-  validateUserData(userData) {
+  validateAdminData(adminData) {
     const errors = [];
 
     // Required fields
-    if (!userData.firstName || userData.firstName.trim() === '') {
+    if (!adminData.firstName || adminData.firstName.trim() === '') {
       errors.push('First name is required');
     }
 
-    if (!userData.lastName || userData.lastName.trim() === '') {
+    if (!adminData.lastName || adminData.lastName.trim() === '') {
       errors.push('Last name is required');
     }
 
-    if (!userData.email || userData.email.trim() === '') {
+    if (!adminData.email || adminData.email.trim() === '') {
       errors.push('Email is required');
     }
 
-    if (!userData.password || userData.password.trim() === '') {
+    if (!adminData.password || adminData.password.trim() === '') {
       errors.push('Password is required');
     }
 
-    if (!userData.role || userData.role.trim() === '') {
-      errors.push('Role is required');
-    }
-
     // Email validation
-    if (userData.email) {
+    if (adminData.email) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(userData.email)) {
+      if (!emailRegex.test(adminData.email)) {
         errors.push('Invalid email format');
       }
     }
 
     // Password validation
-    if (userData.password && userData.password.length < 6) {
+    if (adminData.password && adminData.password.length < 6) {
       errors.push('Password must be at least 6 characters long');
     }
 
-    // Role validation
-    if (userData.role && !this.isValidRole(userData.role)) {
-      errors.push('Role must be either admin or assistant');
-    }
-
     // Name length validation
-    if (userData.firstName && userData.firstName.length > 50) {
+    if (adminData.firstName && adminData.firstName.length > 50) {
       errors.push('First name must be less than 50 characters');
     }
 
-    if (userData.lastName && userData.lastName.length > 50) {
+    if (adminData.lastName && adminData.lastName.length > 50) {
       errors.push('Last name must be less than 50 characters');
     }
 
@@ -646,45 +469,6 @@ class AuthService {
     
     // Assistants cannot manage other users
     return false;
-  }
-
-  /**
-   * Get user capabilities for UI
-   * @returns {Object} User capabilities object
-   */
-  getUserCapabilities() {
-    const user = this.getUser();
-    
-    if (!user) {
-      return {
-        canEditCustomers: false,
-        canDeleteCustomers: false,
-        canAssignCustomers: false,
-        canCreateCustomers: false,
-        canViewAllCustomers: false,
-        canManageUsers: false,
-        isAdmin: false,
-        isAssistant: false
-      };
-    }
-
-    const isAdmin = user.role === 'admin';
-    const isAssistant = user.role === 'assistant';
-
-    return {
-      canEditCustomers: isAdmin || isAssistant,
-      canDeleteCustomers: isAdmin,
-      canAssignCustomers: isAdmin,
-      canCreateCustomers: true,
-      canViewAllCustomers: isAdmin,
-      canManageUsers: isAdmin,
-      isAdmin,
-      isAssistant,
-      role: user.role,
-      fullName: this.getUserFullName(),
-      initials: this.getUserInitials(),
-      roleDisplayName: this.getRoleDisplayName()
-    };
   }
 }
 
