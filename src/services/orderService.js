@@ -216,3 +216,5 @@ export const getOrderById = OrderService.getOrderById;
 export const createOrder = OrderService.createOrder;
 export const updateOrder = OrderService.updateOrder;
 export const deleteOrder = OrderService.deleteOrder;
+
+export default OrderService;
