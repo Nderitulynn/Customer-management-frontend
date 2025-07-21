@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
-import { AuthService } from '../services/AuthService';
+import AuthService from '../services/AuthService';
 
 // Initial state - simplified
 const initialState = {
