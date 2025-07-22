@@ -8,29 +8,42 @@ import { apiHelpers, API_ENDPOINTS, handleApiError } from './api';
 export class CustomerService {
   
   /**
-   * Get all customers
-   * @param {Object} params - Query parameters
-   * @param {number} params.page - Page number (default: 1)
-   * @param {number} params.limit - Items per page (default: 10)
-   * @param {string} params.search - Search term
-   * @returns {Promise<Object>} Response with customers list
+   * Get all customers (removed pagination, added search support)
+   * @param {string} searchTerm - Search term (optional)
+   * @returns {Promise<Array>} Array of customers
    */
-  static async getCustomers(params = {}) {
+  static async getAllCustomers(searchTerm = '') {
     try {
-      const queryParams = new URLSearchParams({
-        page: params.page || 1,
-        limit: params.limit || 10,
-        ...(params.search && { search: params.search }),
-      });
-
-      const response = await apiHelpers.get(`${API_ENDPOINTS.CUSTOMERS.LIST}?${queryParams}`);
+      let url = API_ENDPOINTS.CUSTOMERS.LIST;
       
-      const customers = Array.isArray(response) ? response : response.data || [];
+      if (searchTerm && searchTerm.trim()) {
+        const queryParams = new URLSearchParams({
+          search: searchTerm.trim()
+        });
+        url += `?${queryParams}`;
+      }
+
+      const response = await apiHelpers.get(url);
+      
+      // Handle {success, data} backend format
+      const customers = response.success ? response.data : (Array.isArray(response) ? response : response.data || []);
       
       return customers.map(CustomerService.transformCustomerData);
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to fetch customers'));
     }
+  }
+
+  /**
+   * Get all customers (legacy method for backward compatibility)
+   * @param {Object} params - Query parameters
+   * @param {number} params.page - Page number (default: 1)
+   * @param {number} params.limit - Items per page (default: 10)
+   * @param {string} params.search - Search term
+   * @returns {Promise<Array>} Array of customers
+   */
+  static async getCustomers(params = {}) {
+    return CustomerService.getAllCustomers(params.search);
   }
 
   /**
@@ -46,11 +59,160 @@ export class CustomerService {
 
       const response = await apiHelpers.get(API_ENDPOINTS.CUSTOMERS.GET(customerId));
       
-      // Extract customer data from wrapped response
-      const customer = response.data || response;
+      // Handle {success, data} backend format
+      const customer = response.success ? response.data : (response.data || response);
       return CustomerService.transformCustomerData(customer);
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to fetch customer'));
+    }
+  }
+
+  /**
+   * Get customer notes
+   * @param {string} customerId - Customer ID
+   * @returns {Promise<Array>} Array of customer notes
+   */
+  static async getCustomerNotes(customerId) {
+    try {
+      if (!customerId) {
+        throw new Error('Customer ID is required');
+      }
+
+      const response = await apiHelpers.get(API_ENDPOINTS.CUSTOMERS.NOTES(customerId));
+      
+      // Handle {success, data} backend format
+      const notes = response.success ? response.data : (Array.isArray(response) ? response : response.data || []);
+      
+      return notes.map(note => ({
+        id: note.id || note._id,
+        content: note.content || note.note || '',
+        createdAt: note.createdAt || note.timestamp || null,
+        createdBy: note.createdBy || note.author || null,
+        type: note.type || 'general'
+      }));
+    } catch (error) {
+      throw new Error(handleApiError(error, 'Failed to fetch customer notes'));
+    }
+  }
+
+  /**
+   * Add customer note
+   * @param {string} customerId - Customer ID
+   * @param {Object} noteData - Note data
+   * @param {string} noteData.content - Note content
+   * @param {string} noteData.type - Note type (optional)
+   * @returns {Promise<Object>} Created note
+   */
+  static async addCustomerNote(customerId, noteData) {
+    try {
+      if (!customerId) {
+        throw new Error('Customer ID is required');
+      }
+
+      if (!noteData.content || !noteData.content.trim()) {
+        throw new Error('Note content is required');
+      }
+
+      const payload = {
+        content: noteData.content.trim(),
+        type: noteData.type || 'general'
+      };
+
+      const response = await apiHelpers.post(API_ENDPOINTS.CUSTOMERS.ADD_NOTE(customerId), payload);
+      
+      // Handle {success, data} backend format
+      const note = response.success ? response.data : (response.data || response);
+      
+      return {
+        id: note.id || note._id,
+        content: note.content || note.note || '',
+        createdAt: note.createdAt || note.timestamp || null,
+        createdBy: note.createdBy || note.author || null,
+        type: note.type || 'general'
+      };
+    } catch (error) {
+      throw new Error(handleApiError(error, 'Failed to add customer note'));
+    }
+  }
+
+  /**
+   * Update customer status
+   * @param {string} customerId - Customer ID
+   * @param {string} status - New status
+   * @returns {Promise<Object>} Updated customer data
+   */
+  static async updateCustomerStatus(customerId, status) {
+    try {
+      if (!customerId) {
+        throw new Error('Customer ID is required');
+      }
+
+      if (!status || !status.trim()) {
+        throw new Error('Status is required');
+      }
+
+      const payload = {
+        status: status.trim()
+      };
+
+      const response = await apiHelpers.put(API_ENDPOINTS.CUSTOMERS.UPDATE_STATUS(customerId), payload);
+      
+      // Handle {success, data} backend format
+      const customer = response.success ? response.data : (response.data || response);
+      return CustomerService.transformCustomerData(customer);
+    } catch (error) {
+      throw new Error(handleApiError(error, 'Failed to update customer status'));
+    }
+  }
+
+  /**
+   * Assign customer to assistant
+   * @param {string} customerId - Customer ID
+   * @param {string} assistantId - Assistant ID
+   * @returns {Promise<Object>} Updated customer data
+   */
+  static async assignCustomer(customerId, assistantId) {
+    try {
+      if (!customerId) {
+        throw new Error('Customer ID is required');
+      }
+
+      if (!assistantId) {
+        throw new Error('Assistant ID is required');
+      }
+
+      const payload = {
+        assistantId: assistantId
+      };
+
+      const response = await apiHelpers.put(API_ENDPOINTS.CUSTOMERS.ASSIGN(customerId), payload);
+      
+      // Handle {success, data} backend format
+      const customer = response.success ? response.data : (response.data || response);
+      return CustomerService.transformCustomerData(customer);
+    } catch (error) {
+      throw new Error(handleApiError(error, 'Failed to assign customer'));
+    }
+  }
+
+  /**
+   * Claim customer (assign to current user)
+   * @param {string} customerId - Customer ID
+   * @returns {Promise<Object>} Updated customer data
+   */
+  static async claimCustomer(customerId) {
+    try {
+      if (!customerId) {
+        throw new Error('Customer ID is required');
+      }
+
+      const response = await apiHelpers.put(API_ENDPOINTS.CUSTOMERS.CLAIM(customerId), {});
+      
+      // Handle {success, data} backend format
+      const customer = response.success ? response.data : (response.data || response);
+      return CustomerService.transformCustomerData(customer);
+    } catch (error) {
+      throw new Error(handleApiError(error, 'Failed to claim customer'));
     }
   }
 
@@ -77,8 +239,8 @@ export class CustomerService {
 
       const response = await apiHelpers.post(API_ENDPOINTS.CUSTOMERS.CREATE, payload);
       
-      // Extract customer data from wrapped response
-      const customer = response.data || response;
+      // Handle {success, data} backend format
+      const customer = response.success ? response.data : (response.data || response);
       return CustomerService.transformCustomerData(customer);
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to create customer'));
@@ -112,8 +274,8 @@ export class CustomerService {
 
       const response = await apiHelpers.put(API_ENDPOINTS.CUSTOMERS.UPDATE(customerId), payload);
       
-      // Extract customer data from wrapped response
-      const customer = response.data || response;
+      // Handle {success, data} backend format
+      const customer = response.success ? response.data : (response.data || response);
       return CustomerService.transformCustomerData(customer);
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to update customer'));
@@ -131,9 +293,10 @@ export class CustomerService {
         throw new Error('Customer ID is required');
       }
 
-      await apiHelpers.delete(API_ENDPOINTS.CUSTOMERS.DELETE(customerId));
+      const response = await apiHelpers.delete(API_ENDPOINTS.CUSTOMERS.DELETE(customerId));
       
-      return true;
+      // Handle {success, data} backend format
+      return response.success !== undefined ? response.success : true;
     } catch (error) {
       throw new Error(handleApiError(error, 'Failed to delete customer'));
     }
@@ -153,6 +316,8 @@ export class CustomerService {
       email: customer.email || '',
       phone: customer.phone || '',
       notes: customer.notes || '',
+      status: customer.status || 'active',
+      assignedTo: customer.assignedTo || customer.assistantId || null,
       createdAt: customer.createdAt || null,
       updatedAt: customer.updatedAt || null
     };
@@ -220,8 +385,14 @@ export class CustomerService {
 }
 
 // Export individual methods for convenience
+export const getAllCustomers = CustomerService.getAllCustomers;
 export const getCustomers = CustomerService.getCustomers;
 export const getCustomerById = CustomerService.getCustomerById;
+export const getCustomerNotes = CustomerService.getCustomerNotes;
+export const addCustomerNote = CustomerService.addCustomerNote;
+export const updateCustomerStatus = CustomerService.updateCustomerStatus;
+export const assignCustomer = CustomerService.assignCustomer;
+export const claimCustomer = CustomerService.claimCustomer;
 export const createCustomer = CustomerService.createCustomer;
 export const updateCustomer = CustomerService.updateCustomer;
 export const deleteCustomer = CustomerService.deleteCustomer;
