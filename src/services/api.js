@@ -174,7 +174,7 @@ export const apiHelpers = {
   }
 };
 
-// API endpoints constants - Updated for Admin/Assistant system
+// API endpoints constants - FIXED to align with backend routes
 export const API_ENDPOINTS = {
   // Authentication endpoints
   AUTH: {
@@ -188,24 +188,31 @@ export const API_ENDPOINTS = {
     CHANGE_PASSWORD: '/api/auth/change-password',
   },
 
-  // Admin management endpoints
-  ADMINS: {
-    LIST: '/api/admins',
-    GET: (id) => `/api/admins/${id}`,
-    CREATE: '/api/admins',
-    UPDATE: (id) => `/api/admins/${id}`,
-    DELETE: (id) => `/api/admins/${id}`,
-    PROFILE: '/api/admins/profile',
-  },
+  // User management endpoints (UPDATED TO MATCH BACKEND)
+  USERS: {
+    // Admin endpoints
+    LIST_ALL: '/api/users',
+    REGISTER_ADMIN: '/api/users/register-admin',
+    
+    // Assistant management endpoints (admin only)
+    ASSISTANTS: {
+      LIST: '/api/users/assistants',
+      GET: (id) => `/api/users/assistants/${id}`,
+      CREATE: '/api/users/assistants',
+      UPDATE: (id) => `/api/users/assistants/${id}`,
+      DELETE: (id) => `/api/users/assistants/${id}`,
+      TOGGLE_STATUS: (id) => `/api/users/assistants/${id}/status`,
+      RESET_PASSWORD: (id) => `/api/users/assistants/${id}/reset-password`,
+    },
 
-  // Assistant management endpoints
-  ASSISTANTS: {
-    LIST: '/api/assistants',
-    GET: (id) => `/api/assistants/${id}`,
-    CREATE: '/api/assistants',
-    UPDATE: (id) => `/api/assistants/${id}`,
-    DELETE: (id) => `/api/assistants/${id}`,
-    PROFILE: '/api/assistants/profile',
+    // Profile endpoints (both admin & assistant)
+    PROFILE: '/api/users/profile',
+    UPDATE_PROFILE: '/api/users/profile',
+    CHANGE_PASSWORD: '/api/users/change-password',
+    
+    // Customer assignment endpoints (admin only)
+    ASSIGN_CUSTOMER: '/api/users/assign-customer',
+    UNASSIGN_CUSTOMER: '/api/users/unassign-customer',
   },
 
   // Customer endpoints
@@ -224,6 +231,19 @@ export const API_ENDPOINTS = {
     CREATE: '/api/orders',
     UPDATE: (id) => `/api/orders/${id}`,
     DELETE: (id) => `/api/orders/${id}`,
+  },
+
+  // Legacy support - keep old structure for backward compatibility
+  // You can gradually migrate your frontend to use USERS.ASSISTANTS instead
+  ASSISTANTS: {
+    LIST: '/api/users/assistants',
+    GET: (id) => `/api/users/assistants/${id}`,
+    CREATE: '/api/users/assistants',
+    UPDATE: (id) => `/api/users/assistants/${id}`,
+    DELETE: (id) => `/api/users/assistants/${id}`,
+    PROFILE: '/api/users/profile',
+    TOGGLE_STATUS: (id) => `/api/users/assistants/${id}/status`,
+    RESET_PASSWORD: (id) => `/api/users/assistants/${id}/reset-password`,
   },
 };
 
