@@ -156,7 +156,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Logout function - using static AuthService
+  // Logout function - updated with redirect
   const logout = async () => {
     try {
       if (state.token) {
@@ -167,6 +167,8 @@ export const AuthProvider = ({ children }) => {
     } finally {
       clearStoredAuth();
       dispatch({ type: AUTH_ACTIONS.LOGOUT });
+      // Redirect to login page after logout
+      window.location.href = '/login';
     }
   };
 
@@ -198,7 +200,17 @@ export const AuthProvider = ({ children }) => {
     return hasRole('assistant');
   };
 
-  // Get appropriate dashboard path
+  // ✅ ADDED: Customer role checking function
+  const isCustomer = () => {
+    return hasRole('customer');
+  };
+
+  // ✅ ADDED: Check if user has any staff role (admin or assistant)
+  const isStaff = () => {
+    return isAdmin() || isAssistant();
+  };
+
+  // ✅ UPDATED: Get appropriate dashboard path - now includes customer
   const getDashboardPath = () => {
     if (!state.isAuthenticated) return '/login';
     
@@ -208,26 +220,133 @@ export const AuthProvider = ({ children }) => {
         return '/admin-dashboard';
       case 'assistant':
         return '/assistant-dashboard';
+      case 'customer':
+        return '/customer-dashboard';
       default:
         return '/login';
     }
   };
 
-  // Check if user can access a route
+  // ✅ UPDATED: Check if user can access a route - now includes customer routes
   const canAccessRoute = (routePath) => {
     if (!state.isAuthenticated) return false;
 
     const role = getUserRole();
     const routeAccess = {
+      // Admin routes
       '/admin-dashboard': ['admin'],
-      '/assistant-dashboard': ['assistant'],
-      '/customer': ['admin', 'assistant']
+      '/admin': ['admin'],
+      
+      // Assistant routes
+      '/assistant-dashboard': ['assistant', 'admin'],
+      '/assistant': ['assistant', 'admin'],
+      
+      // Customer routes - only customers can access
+      '/customer-dashboard': ['customer'],
+      '/customer': ['customer'],
+      '/customer/orders': ['customer'],
+      '/customer/profile': ['customer'],
+      '/customer/orders/new': ['customer'],
+      
+      // Shared routes - staff can manage customers
+      '/customers': ['admin', 'assistant'],
+      '/orders': ['admin', 'assistant']
     };
 
     const allowedRoles = routeAccess[routePath];
     if (!allowedRoles) return true; // Allow access to undefined routes
     
     return allowedRoles.includes(role);
+  };
+
+  // ✅ ADDED: Get user display name with fallback
+  const getUserDisplayName = () => {
+    if (!state.user) return null;
+    return state.user.name || 
+           state.user.firstName || 
+           state.user.fullName || 
+           state.user.username || 
+           state.user.email?.split('@')[0] || 
+           'User';
+  };
+
+  // ✅ ADDED: Check if current user owns a resource
+  const isOwner = (resourceUserId) => {
+    if (!state.isAuthenticated || !state.user) return false;
+    return state.user.id === resourceUserId || state.user._id === resourceUserId;
+  };
+
+  // ✅ ADDED: Check if user can perform action based on role hierarchy
+  const canPerformAction = (action, targetUserRole = null) => {
+    if (!state.isAuthenticated) return false;
+    
+    const userRole = getUserRole();
+    
+    const permissions = {
+      // Admin can do everything
+      admin: {
+        createCustomer: true,
+        editCustomer: true,
+        deleteCustomer: true,
+        viewAllOrders: true,
+        editAllOrders: true,
+        manageUsers: true,
+        viewReports: true
+      },
+      
+      // Assistant can manage customers and orders but not users
+      assistant: {
+        createCustomer: true,
+        editCustomer: true,
+        deleteCustomer: false,
+        viewAllOrders: true,
+        editAllOrders: true,
+        manageUsers: false,
+        viewReports: true
+      },
+      
+      // Customer can only manage own data
+      customer: {
+        createCustomer: false,
+        editCustomer: false,
+        deleteCustomer: false,
+        viewAllOrders: false,
+        editAllOrders: false,
+        manageUsers: false,
+        viewReports: false,
+        createOrder: true,
+        editOwnOrder: true,
+        viewOwnOrders: true,
+        cancelOwnOrder: true,
+        editOwnProfile: true
+      }
+    };
+
+    const userPermissions = permissions[userRole];
+    if (!userPermissions) return false;
+    
+    return userPermissions[action] || false;
+  };
+
+  // ✅ ADDED: Get all valid roles for the system
+  const getValidRoles = () => {
+    return ['admin', 'assistant', 'customer'];
+  };
+
+  // ✅ ADDED: Check if user has higher role than target
+  const hasHigherRoleThan = (targetRole) => {
+    if (!state.isAuthenticated) return false;
+    
+    const roleHierarchy = {
+      admin: 3,
+      assistant: 2,
+      customer: 1
+    };
+    
+    const userRoleLevel = roleHierarchy[getUserRole()] || 0;
+    const targetRoleLevel = roleHierarchy[targetRole] || 0;
+    
+    return userRoleLevel > targetRoleLevel;
   };
 
   // Context value
@@ -249,8 +368,17 @@ export const AuthProvider = ({ children }) => {
     hasRole,
     isAdmin,
     isAssistant,
+    isCustomer,        // ✅ ADDED
+    isStaff,           // ✅ ADDED
     getDashboardPath,
-    canAccessRoute
+    canAccessRoute,
+
+    // ✅ ADDED: User utility functions
+    getUserDisplayName,
+    isOwner,
+    canPerformAction,
+    getValidRoles,
+    hasHigherRoleThan
   };
 
   return (

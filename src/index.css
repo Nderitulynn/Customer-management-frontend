@@ -99,12 +99,12 @@ input:not([type="hidden"]) {
   border: 1px solid #d1d5db !important;
 }
 
-/* Ensure inputs work properly */
+/* Ensure inputs work properly - FIXED */
 input, textarea, select {
   font-family: inherit;
   font-size: inherit;
   line-height: inherit;
-  color: inherit;
+  color: #000000 !important;  /* Force black text for inputs */
 }
 
 /* Override any potential input disabling */

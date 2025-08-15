@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, Sparkles, User, Shield } from 'lucide-react';
+import { Eye, EyeOff, Sparkles, User, Shield, ShoppingCart } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 
 const Login = () => {
   const [formData, setFormData] = useState({
@@ -71,14 +71,22 @@ const Login = () => {
       if (result.success) {
         console.log('Login successful, navigating to dashboard');
         
-        // Use React Router navigation instead of window.location.href
-        // The ProtectedRoute will handle role-based redirection automatically
-        if (formData.role === 'admin') {
+        // Get the user's actual role from the authentication response
+        const userRole = result.user?.role || result.role || formData.role;
+        
+        // Direct role-based navigation - NO GENERIC DASHBOARD FALLBACK
+        if (userRole === 'admin') {
           navigate('/admin-dashboard', { replace: true });
-        } else if (formData.role === 'assistant') {
+        } else if (userRole === 'assistant') {
           navigate('/assistant-dashboard', { replace: true });
+        } else if (userRole === 'customer') {
+          navigate('/customer-dashboard', { replace: true });
         } else {
-          navigate('/dashboard', { replace: true });
+          // Handle unknown roles with error instead of generic dashboard
+          setErrors({ 
+            submit: 'Invalid user role. Please contact administrator.' 
+          });
+          console.error('Unknown user role:', userRole);
         }
         
       } else {
@@ -97,6 +105,7 @@ const Login = () => {
   };
 
   const roleOptions = [
+    { value: 'customer', label: 'Customer', icon: ShoppingCart, description: 'Access your orders and profile' },
     { value: 'assistant', label: 'Assistant', icon: User, description: 'Access assistant dashboard' },
     { value: 'admin', label: 'Administrator', icon: Shield, description: 'Full system access' }
   ];
@@ -238,9 +247,9 @@ const Login = () => {
           <div className="mt-8 text-center">
             <p className="text-gray-400 text-sm">
               Don't have an account? 
-              <a href="/register" className="text-indigo-400 hover:text-indigo-300 ml-1 transition-colors duration-200">
+              <Link to="/register" className="text-indigo-400 hover:text-indigo-300 ml-1 transition-colors duration-200">
                 Sign up
-              </a>
+              </Link>
             </p>
           </div>
         </div>

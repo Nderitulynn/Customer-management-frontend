@@ -1,220 +1,329 @@
-import { apiHelpers, API_ENDPOINTS, handleApiError } from './api';
+// src/services/orderService.js - FRONTEND SERVICE FOR API CALLS
 
-/**
- * Order Service for School Project
- * Handles core order management operations
- * Simple CRUD operations for order data
- */
-export class OrderService {
-  
+import authService from './authService';
+
+class OrderService {
+  constructor() {
+    this.baseURL = '/api/orders';
+  }
+
   /**
-   * Get all orders with basic pagination
-   * @param {Object} params - Query parameters
-   * @param {number} params.page - Page number (default: 1)
-   * @param {number} params.limit - Items per page (default: 10)
-   * @param {string} params.search - Search term
-   * @param {string} params.status - Order status filter
-   * @returns {Promise<Object>} Paginated order list
+   * Get authentication headers
    */
-  static async getAllOrders(params = {}) {
+  getAuthHeaders() {
+    return {
+      'Content-Type': 'application/json',
+      ...authService.getAuthHeader()
+    };
+  }
+
+  /**
+   * Get all orders with optional search and filtering
+   */
+  async getAllOrders(params = {}) {
     try {
-      const queryParams = new URLSearchParams({
-        page: params.page || 1,
-        limit: params.limit || 10,
-        ...(params.search && { search: params.search }),
-        ...(params.status && { status: params.status }),
+      const queryParams = new URLSearchParams();
+      
+      if (params.search) queryParams.append('search', params.search);
+      if (params.status) queryParams.append('status', params.status);
+      if (params.customerId) queryParams.append('customerId', params.customerId);
+
+      const url = queryParams.toString() ? 
+        `${this.baseURL}?${queryParams.toString()}` : 
+        this.baseURL;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
       });
 
-      const response = await apiHelpers.get(`${API_ENDPOINTS.ORDERS.LIST}?${queryParams}`);
-      
-      return {
-        orders: response.data || [],
-        pagination: {
-          currentPage: response.currentPage || 1,
-          totalPages: response.totalPages || 1,
-          totalItems: response.totalItems || 0,
-        }
-      };
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
     } catch (error) {
-      throw new Error(handleApiError(error, 'Failed to fetch orders'));
+      console.error('Error fetching orders:', error);
+      throw error;
     }
   }
 
   /**
-   * Get order by ID
-   * @param {string} orderId - Order ID
-   * @returns {Promise<Object>} Order data
+   * Get single order by ID
    */
-  static async getOrderById(orderId) {
+  async getOrderById(orderId) {
     try {
-      if (!orderId) {
-        throw new Error('Order ID is required');
+      const response = await fetch(`${this.baseURL}/${orderId}`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
       }
 
-      const response = await apiHelpers.get(API_ENDPOINTS.ORDERS.GET(orderId));
-      return this.transformOrderData(response.data);
+      const data = await response.json();
+      return data;
     } catch (error) {
-      throw new Error(handleApiError(error, 'Failed to fetch order details'));
+      console.error('Error fetching order:', error);
+      throw error;
     }
   }
 
   /**
    * Create new order
-   * @param {Object} orderData - Order information
-   * @param {string} orderData.customerId - Customer ID
-   * @param {Array} orderData.items - Order items
-   * @param {number} orderData.totalAmount - Total amount
-   * @param {string} orderData.status - Order status (default: 'pending')
-   * @param {string} orderData.notes - Order notes
-   * @returns {Promise<Object>} Created order data
+   * Required fields: customerId, items, orderTotal
    */
-  static async createOrder(orderData) {
+  async createOrder(orderData) {
     try {
-      // Validate required fields
-      this.validateOrderData(orderData);
+      if (!orderData.customerId) {
+        throw new Error('Customer ID is required');
+      }
+      
+      if (!orderData.items || !Array.isArray(orderData.items) || orderData.items.length === 0) {
+        throw new Error('Items array is required and cannot be empty');
+      }
+      
+      if (!orderData.orderTotal || orderData.orderTotal <= 0) {
+        throw new Error('Order total is required and must be greater than 0');
+      }
 
-      // Set default status if not provided
-      const orderToCreate = {
-        ...orderData,
-        status: orderData.status || 'pending',
-        orderDate: new Date().toISOString()
-      };
+      const response = await fetch(this.baseURL, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(orderData),
+      });
 
-      const response = await apiHelpers.post(API_ENDPOINTS.ORDERS.CREATE, orderToCreate);
-      return this.transformOrderData(response.data);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
     } catch (error) {
-      throw new Error(handleApiError(error, 'Failed to create order'));
+      console.error('Error creating order:', error);
+      throw error;
     }
   }
 
   /**
    * Update existing order
-   * @param {string} orderId - Order ID
-   * @param {Object} orderData - Updated order information
-   * @returns {Promise<Object>} Updated order data
    */
-  static async updateOrder(orderId, orderData) {
+  async updateOrder(orderId, updateData) {
     try {
-      if (!orderId) {
-        throw new Error('Order ID is required');
-      }
-
-      // Validate data if provided
-      if (Object.keys(orderData).length > 0) {
-        this.validateOrderData(orderData, false); // partial validation
-      }
-
-      const response = await apiHelpers.put(API_ENDPOINTS.ORDERS.UPDATE(orderId), orderData);
-      return this.transformOrderData(response.data);
-    } catch (error) {
-      throw new Error(handleApiError(error, 'Failed to update order'));
-    }
-  }
-
-  /**
-   * Delete order
-   * @param {string} orderId - Order ID
-   * @returns {Promise<boolean>} Success status
-   */
-  static async deleteOrder(orderId) {
-    try {
-      if (!orderId) {
-        throw new Error('Order ID is required');
-      }
-
-      await apiHelpers.delete(API_ENDPOINTS.ORDERS.DELETE(orderId));
-      return true;
-    } catch (error) {
-      throw new Error(handleApiError(error, 'Failed to delete order'));
-    }
-  }
-
-  /**
-   * Validate order data
-   * @param {Object} orderData - Order data to validate
-   * @param {boolean} isComplete - Whether to validate all required fields
-   * @throws {Error} Validation error
-   */
-  static validateOrderData(orderData, isComplete = true) {
-    const errors = [];
-
-    // Required fields validation (for complete validation)
-    if (isComplete) {
-      if (!orderData.customerId) {
-        errors.push('Customer ID is required');
-      }
-
-      if (!orderData.items || !Array.isArray(orderData.items) || orderData.items.length === 0) {
-        errors.push('Order items are required');
-      }
-
-      if (!orderData.totalAmount || orderData.totalAmount <= 0) {
-        errors.push('Valid total amount is required');
-      }
-    }
-
-    // Items validation
-    if (orderData.items && Array.isArray(orderData.items)) {
-      orderData.items.forEach((item, index) => {
-        if (!item.productName) {
-          errors.push(`Product name is required for item ${index + 1}`);
-        }
-        if (!item.quantity || item.quantity <= 0) {
-          errors.push(`Valid quantity is required for item ${index + 1}`);
-        }
-        if (!item.price || item.price < 0) {
-          errors.push(`Valid price is required for item ${index + 1}`);
-        }
+      const response = await fetch(`${this.baseURL}/${orderId}`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(updateData),
       });
-    }
 
-    // Status validation
-    if (orderData.status) {
-      const validStatuses = ['pending', 'processing', 'completed', 'cancelled'];
-      if (!validStatuses.includes(orderData.status)) {
-        errors.push('Invalid order status');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
       }
-    }
 
-    // Total amount validation
-    if (orderData.totalAmount !== undefined && orderData.totalAmount < 0) {
-      errors.push('Total amount cannot be negative');
-    }
-
-    if (errors.length > 0) {
-      throw new Error(errors.join(', '));
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error updating order:', error);
+      throw error;
     }
   }
 
   /**
-   * Transform order data for consistent format
-   * @param {Object} orderData - Raw order data
-   * @returns {Object} Transformed order data
+   * Delete order (soft delete)
    */
-  static transformOrderData(orderData) {
-    if (!orderData) return null;
+  async deleteOrder(orderId) {
+    try {
+      const response = await fetch(`${this.baseURL}/${orderId}`, {
+        method: 'DELETE',
+        headers: this.getAuthHeaders(),
+      });
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get orders for specific customer
+   */
+  async getCustomerOrders(customerId) {
+    try {
+      const response = await fetch(`${this.baseURL}/customer/${customerId}`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error fetching customer orders:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update order status only
+   */
+  async updateOrderStatus(orderId, status) {
+    try {
+      if (!status) {
+        throw new Error('Status is required');
+      }
+
+      const response = await fetch(`${this.baseURL}/${orderId}/status`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ status }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error updating order status:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update order payment information
+   */
+  async updateOrderPayment(orderId, paymentData) {
+    try {
+      const { paymentAmount, paymentStatus } = paymentData;
+      
+      if (!paymentAmount && !paymentStatus) {
+        throw new Error('Payment amount or payment status is required');
+      }
+
+      const response = await fetch(`${this.baseURL}/${orderId}/payment`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ paymentAmount, paymentStatus }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error updating order payment:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get order dashboard statistics
+   */
+  async getDashboardStats() {
+    try {
+      const response = await fetch(`${this.baseURL}/stats`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error fetching order stats:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get recent order activity (for admin dashboard)
+   */
+  async getRecentActivity() {
+    try {
+      const response = await fetch(`${this.baseURL}/activity`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error fetching recent activity:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Helper method to get order status options
+   */
+  getOrderStatusOptions() {
+    return [
+      { value: 'pending', label: 'Pending' },
+      { value: 'confirmed', label: 'Confirmed' },
+      { value: 'in_progress', label: 'In Progress' },
+      { value: 'completed', label: 'Completed' },
+      { value: 'cancelled', label: 'Cancelled' }
+    ];
+  }
+
+  /**
+   * Helper method to get payment status options
+   */
+  getPaymentStatusOptions() {
+    return [
+      { value: 'pending', label: 'Pending' },
+      { value: 'partial', label: 'Partial' },
+      { value: 'paid', label: 'Paid' }
+    ];
+  }
+
+  /**
+   * Helper method to format order data for display
+   */
+  formatOrderForDisplay(order) {
     return {
-      id: orderData.id,
-      orderId: orderData.orderId || orderData.id,
-      customerId: orderData.customerId,
-      customerName: orderData.customer?.fullName || orderData.customerName,
-      items: orderData.items || [],
-      totalAmount: parseFloat(orderData.totalAmount) || 0,
-      status: orderData.status,
-      notes: orderData.notes || '',
-      orderDate: orderData.orderDate,
-      createdAt: orderData.createdAt,
-      updatedAt: orderData.updatedAt
+      ...order,
+      formattedTotal: new Intl.NumberFormat('en-KE', {
+        style: 'currency',
+        currency: 'KES'
+      }).format(order.orderTotal || 0),
+      formattedDate: new Date(order.createdAt).toLocaleDateString('en-KE'),
+      customerName: order.customerId?.fullName || 'Unknown Customer',
+      customerEmail: order.customerId?.email || '',
+      assignedToName: order.assignedTo?.name || 'Unassigned'
     };
   }
 }
 
-// Individual exports for flexible importing
-export const getAllOrders = OrderService.getAllOrders;
-export const getOrderById = OrderService.getOrderById;
-export const createOrder = OrderService.createOrder;
-export const updateOrder = OrderService.updateOrder;
-export const deleteOrder = OrderService.deleteOrder;
-
-export default OrderService;
+export default new OrderService();
