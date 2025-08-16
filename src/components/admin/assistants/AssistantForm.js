@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AssistantService } from '../../../services/AssistantService';
+import { assistantService } from '../../../services/assistantService';
 
 const AssistantForm = ({ onSuccess, onCancel }) => {
   const [formData, setFormData] = useState({
@@ -82,7 +82,7 @@ const AssistantForm = ({ onSuccess, onCancel }) => {
     setIsSubmitting(true);
     
     try {
-      const newAssistant = await AssistantService.createAssistant(formData);
+      const newAssistant = await assistantService.createAssistant(formData);
       
       setSuccessData({
         assistant: newAssistant,
@@ -254,7 +254,7 @@ const AssistantForm = ({ onSuccess, onCancel }) => {
                   className="flex-1 bg-gray-600 text-white py-2 px-3 rounded text-sm hover:bg-gray-700 transition-colors flex items-center justify-center"
                 >
                   <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-6a2 2 0 00-2 2v6a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
                   </svg>
                   Print
                 </button>
