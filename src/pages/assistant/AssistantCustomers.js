@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Search, Plus, Eye, ArrowLeft, Edit2 } from 'lucide-react';
-import CustomerService from '../../services/CustomerService';
+import customerService from '../../services/customerService';
 import { useNavigate } from 'react-router-dom';
 
 const AssistantCustomers = () => {
@@ -39,7 +39,7 @@ const AssistantCustomers = () => {
       setLoading(true);
       
       // Load customers assigned to this assistant
-      const assignedCustomers = await CustomerService.getCustomers();
+      const assignedCustomers = await customerService.getCustomers();
       setCustomers(assignedCustomers || []); // Ensure it's always an array
 
     } catch (err) {
@@ -80,8 +80,8 @@ const AssistantCustomers = () => {
         phone: editingCustomer.phone
       };
       
-      // Update customer using CustomerService
-      await CustomerService.updateCustomer(editingCustomer.id, updateData);
+      // Update customer using customerService
+      await customerService.updateCustomer(editingCustomer.id, updateData);
       
       // Reload customers
       await loadCustomerData();
@@ -113,8 +113,8 @@ const AssistantCustomers = () => {
         phone: newCustomer.phone
       };
       
-      // Create customer using CustomerService
-      await CustomerService.createCustomer(customerData);
+      // Create customer using customerService
+      await customerService.createCustomer(customerData);
       
       // Reload customers
       await loadCustomerData();
@@ -168,6 +168,7 @@ const AssistantCustomers = () => {
               <div>
                 <h1 className="text-xl font-semibold text-gray-900 flex items-center">
                   <Users className="h-6 w-6 mr-2 text-blue-600" />
+                  Customer Management
                 </h1>
               </div>
             </div>
