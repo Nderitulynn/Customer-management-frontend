@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Search, Plus, Eye, Edit2, ArrowLeft, CheckCircle, Clock, AlertCircle, DollarSign } from 'lucide-react';
-import InvoiceService from '../../services/InvoiceService';
+import invoiceService from '../../services/invoiceService';
 import InvoiceForm from '../../components/assistants/invoices/InvoiceForm';
 import InvoicePreview from '../../components/assistants/invoices/InvoicePreview';
 import InvoiceStatusBadge from '../../components/assistants/invoices/InvoiceStatusBadge';
@@ -51,12 +51,12 @@ const AssistantInvoices = () => {
       setLoading(true);
       setError('');
       
-      const params = InvoiceService.buildSearchParams({
+      const params = invoiceService.buildSearchParams({
         search: invoiceSearch,
         status: statusFilter
       });
       
-      const response = await InvoiceService.getAllInvoices(params);
+      const response = await invoiceService.getAllInvoices(params);
       setInvoices(response.invoices || []);
 
     } catch (err) {
@@ -70,7 +70,7 @@ const AssistantInvoices = () => {
 
   const loadInvoiceStats = async () => {
     try {
-      const statsData = await InvoiceService.getInvoiceStats();
+      const statsData = await invoiceService.getInvoiceStats();
       setStats(statsData);
     } catch (err) {
       console.error('Error loading invoice stats:', err);
@@ -98,7 +98,7 @@ const AssistantInvoices = () => {
 
     try {
       setLoading(true);
-      await InvoiceService.deleteInvoice(invoice._id);
+      await invoiceService.deleteInvoice(invoice._id);
       setMessage(`Invoice ${invoice.invoiceNumber} deleted successfully`);
       setTimeout(() => setMessage(''), 3000);
       await loadInvoiceData();
@@ -114,7 +114,7 @@ const AssistantInvoices = () => {
   const handleStatusChange = async (invoice, newStatus) => {
     try {
       setLoading(true);
-      await InvoiceService.updateInvoiceStatus(invoice._id, newStatus);
+      await invoiceService.updateInvoiceStatus(invoice._id, newStatus);
       setMessage(`Invoice status updated to ${newStatus}`);
       setTimeout(() => setMessage(''), 3000);
       await loadInvoiceData();
@@ -183,6 +183,7 @@ const AssistantInvoices = () => {
                 <ArrowLeft className="h-5 w-5" />
               </button>
               <div>
+                <h1 className="text-xl font-semibold text-gray-900">Invoice Management</h1>
               </div>
             </div>
             <button
@@ -276,7 +277,7 @@ const AssistantInvoices = () => {
                   <div className="ml-4">
                     <p className="text-sm font-medium text-gray-600">Total Value</p>
                     <p className="text-2xl font-bold text-gray-900">
-                      {InvoiceService.formatCurrency(stats.totalAmount)}
+                      {invoiceService.formatCurrency(stats.totalAmount)}
                     </p>
                   </div>
                 </div>
@@ -316,7 +317,7 @@ const AssistantInvoices = () => {
                     className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="all">All Status</option>
-                    {InvoiceService.getInvoiceStatusOptions().map(option => (
+                    {invoiceService.getInvoiceStatusOptions().map(option => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
@@ -396,25 +397,25 @@ const AssistantInvoices = () => {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="text-sm font-medium text-gray-900">
-                                {InvoiceService.formatCurrency(invoice.totalAmount)}
+                                {invoiceService.formatCurrency(invoice.totalAmount)}
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <InvoiceStatusBadge 
                                 status={invoice.status} 
-                                isOverdue={InvoiceService.isInvoiceOverdue(invoice)}
+                                isOverdue={invoiceService.isInvoiceOverdue(invoice)}
                               />
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {InvoiceService.formatDate(invoice.invoiceDate)}
+                              {invoiceService.formatDate(invoice.invoiceDate)}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                               <div>
-                                {InvoiceService.formatDate(invoice.dueDate)}
+                                {invoiceService.formatDate(invoice.dueDate)}
                               </div>
-                              {InvoiceService.isInvoiceOverdue(invoice) && (
+                              {invoiceService.isInvoiceOverdue(invoice) && (
                                 <div className="text-red-500 text-xs">
-                                  {Math.abs(InvoiceService.getDaysUntilDue(invoice.dueDate))} days overdue
+                                  {Math.abs(invoiceService.getDaysUntilDue(invoice.dueDate))} days overdue
                                 </div>
                               )}
                             </td>
@@ -439,7 +440,7 @@ const AssistantInvoices = () => {
                                   onChange={(e) => handleStatusChange(invoice, e.target.value)}
                                   className="text-xs border border-gray-300 rounded px-2 py-1"
                                 >
-                                  {InvoiceService.getInvoiceStatusOptions().map(option => (
+                                  {invoiceService.getInvoiceStatusOptions().map(option => (
                                     <option key={option.value} value={option.value}>
                                       {option.label}
                                     </option>
