@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AssistantService } from '../services/assistantService';
-import { CustomerService } from '../services/CustomerService';
+import customerService from '../services/customerService';
 import OrderService from '../services/orderService';
 
 export const useDashboardData = () => {
@@ -53,14 +53,14 @@ export const useDashboardData = () => {
     try {
       setStatsLoading(true);
       
-      // Try to get stats from CustomerService if available
+      // Try to get stats from customerService if available
       let stats = {};
       try {
-        if (CustomerService.getDashboardStats) {
-          stats = await CustomerService.getDashboardStats();
+        if (customerService.getDashboardStats) {
+          stats = await customerService.getDashboardStats();
         }
       } catch (err) {
-        console.warn('Dashboard stats not available from CustomerService:', err);
+        console.warn('Dashboard stats not available from customerService:', err);
       }
       
       // Try to get order stats from OrderService
@@ -104,7 +104,7 @@ export const useDashboardData = () => {
       setCustomersLoading(true);
       
       // Use the existing getCustomers method instead of non-existent getRecentCustomers
-      const allCustomers = await CustomerService.getCustomers();
+      const allCustomers = await customerService.getCustomers();
       
       // Get the most recent customers (last 5) and transform data
       const recentCustomers = Array.isArray(allCustomers) 
