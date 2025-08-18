@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Minus, Save, X } from 'lucide-react';
 import InvoiceService from '../../../services/InvoiceService';
-import CustomerService from '../../../services/CustomerService';
+import CustomerService from '../../../services/customerService';
 import OrderService from '../../../services/OrderService';
 
 const InvoiceForm = ({ invoice, onSubmit, onCancel }) => {
