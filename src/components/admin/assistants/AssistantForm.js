@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { assistantService } from '../../../services/assistantService';
+import { AssistantService } from '../../../services/assistantService';
 
 const AssistantForm = ({ onSuccess, onCancel }) => {
   const [formData, setFormData] = useState({
@@ -65,8 +65,8 @@ const AssistantForm = ({ onSuccess, onCancel }) => {
     if (!formData.password.trim()) {
       newErrors.password = 'Password is required';
     } else if (formData.password && formData.password.length < 8) {
-  newErrors.password = 'Password must be at least 8 characters long (leave empty for auto-generated)';
-}
+      newErrors.password = 'Password must be at least 8 characters long (leave empty for auto-generated)';
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -82,7 +82,7 @@ const AssistantForm = ({ onSuccess, onCancel }) => {
     setIsSubmitting(true);
     
     try {
-      const newAssistant = await assistantService.createAssistant(formData);
+      const newAssistant = await AssistantService.createAssistant(formData);
       
       setSuccessData({
         assistant: newAssistant,
@@ -301,7 +301,7 @@ const AssistantForm = ({ onSuccess, onCancel }) => {
             <button
               onClick={handleDone}
               disabled={!passwordConfirmed}
-              className="flex-1 bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Done
             </button>
