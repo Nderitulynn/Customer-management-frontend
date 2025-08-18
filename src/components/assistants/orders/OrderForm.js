@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, X, Search } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
-import CustomerService from '../../../services/CustomerService';
+import CustomerService from '../../../services/customerService';
 import OrderService from '../../../services/orderService';
 
 const OrderForm = ({ customerId, orderId, onSubmit, onCancel, isModal }) => {
