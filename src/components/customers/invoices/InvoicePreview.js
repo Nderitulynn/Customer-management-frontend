@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, Download, Printer } from 'lucide-react';
-import InvoiceService from '../../../services/InvoiceService';
+import InvoiceService from '../../../services/invoiceService';
 import InvoiceStatusBadge from './InvoiceStatusBadge';
 
 const InvoicePreview = ({ invoice, onClose }) => {
