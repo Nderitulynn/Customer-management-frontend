@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { AssistantService } from '../services/assistantService';
 import customerService from '../services/customerService';
 import OrderService from '../services/orderService';
+import { dashboardService, dashboardUtils } from '../services/dashboardService';
+import { analyticsService, analyticsUtils } from '../services/analyticsService';
 
 export const useDashboardData = () => {
   // Loading states
