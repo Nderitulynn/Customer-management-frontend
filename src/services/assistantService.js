@@ -1,10 +1,5 @@
 import { apiHelpers, API_ENDPOINTS, handleApiError } from './api';
 
-/**
- * Assistant Service for School Project
- * Handles assistant management operations (Admin Only)
- * Complete CRUD operations for assistant management
- */
 export class AssistantService {
   
   /**
