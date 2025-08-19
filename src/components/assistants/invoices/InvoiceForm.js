@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Minus, Save, X } from 'lucide-react';
-import InvoiceService from '../../../services/InvoiceService';
+import InvoiceService from '../../../services/invoiceService';
 import CustomerService from '../../../services/customerService';
 import OrderService from '../../../services/OrderService';
 
