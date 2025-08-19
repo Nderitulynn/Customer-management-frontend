@@ -31,6 +31,6 @@
   },
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "framework": "react",
+  "framework": "react-router",
   "installCommand": "npm install"
 }
