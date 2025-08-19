@@ -1,6 +1,6 @@
 import React from 'react';
 import { CheckCircle, Clock, AlertCircle, XCircle, Send } from 'lucide-react';
-import InvoiceService from '../../../services/InvoiceService';
+import InvoiceService from '../../../services/invoiceService';
 
 const InvoiceStatusBadge = ({ status, isOverdue = false, size = 'normal' }) => {
   // If invoice is overdue, override status display
