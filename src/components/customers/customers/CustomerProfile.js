@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import customerService from '../../../services/CustomerService';
-import authService  from '../../../services/AuthService';
+import customerService from '../../../services/customerService';
+import authService  from '../../../services/authService';
 
 const CustomerProfile = ({ customerId, onEdit, onBack, onDelete }) => {
   const [customer, setCustomer] = useState(null);

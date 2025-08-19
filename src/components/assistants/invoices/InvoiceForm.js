@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Minus, Save, X } from 'lucide-react';
 import InvoiceService from '../../../services/invoiceService';
 import CustomerService from '../../../services/customerService';
-import OrderService from '../../../services/OrderService';
+import OrderService from '../../../services/orderService';
 
 const InvoiceForm = ({ invoice, onSubmit, onCancel }) => {
   const [loading, setLoading] = useState(false);
