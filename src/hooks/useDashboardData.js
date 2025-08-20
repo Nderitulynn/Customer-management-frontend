@@ -1,17 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AssistantService } from '../services/assistantService';
-import customerService from '../services/customerService';
-import OrderService from '../services/orderService';
 import { dashboardService, dashboardUtils } from '../services/dashboardService';
-import { analyticsService, analyticsUtils } from '../services/analyticsService';
 
 export const useDashboardData = () => {
   // Loading states
   const [loading, setLoading] = useState(true);
-  const [customersLoading, setCustomersLoading] = useState(false);
-  const [statsLoading, setStatsLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Dashboard data state - initialized with empty/default values
+  // Error states
+  const [error, setError] = useState(null);
+
+  // Dashboard data state - using service layer structure
   const [dashboardData, setDashboardData] = useState({
     stats: {
       totalCustomers: 0,
@@ -19,304 +17,265 @@ export const useDashboardData = () => {
       monthlyRevenue: 0,
       todayOrders: 0,
       totalAssistants: 0,
-      responseRate: 0
+      responseRate: 0,
+      activeCustomers: 0,
+      newCustomers: 0
     },
     recentOrders: [],
-    recentCustomers: []
+    assistantStats: {
+      total: 0,
+      active: 0,
+      inactive: 0,
+      online: 0,
+      responseTime: 0
+    },
+    customerStats: {
+      total: 0,
+      active: 0,
+      new: 0,
+      growth: 0,
+      retention: 0
+    },
+    recentMessages: [],
+    lastUpdated: null
   });
 
-  // Data validation helper functions
-  const validateCustomer = (customer) => {
-    return {
-      ...customer,
-      name: customer.fullName || customer.name || 'Unknown Customer',
-      phone: customer.phone || 'N/A',
-      lastOrder: customer.lastOrderDate || customer.createdAt || 'N/A',
-      totalOrders: customer.totalOrders || 0,
-      totalSpent: customer.totalSpent || 0,
-      id: customer.id || customer._id || null
-    };
-  };
-
-  const validateOrder = (order) => {
-    return {
-      ...order,
-      id: order.id || order._id || null,
-      customer: order.customerId?.fullName || order.customerName || 'Unknown Customer',
-      item: order.items?.[0]?.productName || order.items?.[0]?.name || 'Order Items',
-      amount: order.orderTotal || 0,
-      status: order.status || 'pending',
-      date: order.createdAt || new Date().toISOString()
-    };
-  };
-
-  // Fetch dashboard stats from API - memoized
-  const fetchDashboardStats = useCallback(async () => {
-    try {
-      setStatsLoading(true);
-      
-      // Try to get stats from customerService if available
-      let stats = {};
-      try {
-        if (customerService.getDashboardStats) {
-          stats = await customerService.getDashboardStats();
-        }
-      } catch (err) {
-        console.warn('Dashboard stats not available from customerService:', err);
-      }
-      
-      // Try to get order stats from OrderService
-      try {
-        const orderStats = await OrderService.getDashboardStats();
-        stats = { ...stats, ...orderStats };
-      } catch (err) {
-        console.warn('Order stats not available from OrderService:', err);
-      }
-
-      // Get basic assistant count for overview statistics
-      try {
-        const assistants = await AssistantService.getAllAssistants();
-        const assistantCount = Array.isArray(assistants) ? assistants.length : 0;
-        stats.totalAssistants = assistantCount;
-      } catch (err) {
-        console.warn('Assistant count not available:', err);
-        stats.totalAssistants = 0;
-      }
-      
-      setDashboardData(prev => ({
-        ...prev,
-        stats: {
-          ...prev.stats,
-          ...stats
-        }
-      }));
-      
-      return { success: true, data: stats };
-    } catch (err) {
-      console.error('Error fetching dashboard stats:', err);
-      return { success: false, error: 'Failed to fetch dashboard statistics. Please try again.' };
-    } finally {
-      setStatsLoading(false);
-    }
-  }, []);
-
-  // Fetch recent customers from API using existing getCustomers method - memoized
-  const fetchRecentCustomers = useCallback(async () => {
-    try {
-      setCustomersLoading(true);
-      
-      // Use the existing getCustomers method instead of non-existent getRecentCustomers
-      const allCustomers = await customerService.getCustomers();
-      
-      // Get the most recent customers (last 5) and transform data
-      const recentCustomers = Array.isArray(allCustomers) 
-        ? allCustomers
-            .slice(-5) // Get last 5 customers (most recent)
-            .reverse() // Reverse to show newest first
-            .map(customer => {
-              return validateCustomer({
-                id: customer._id || customer.id,
-                name: customer.fullName || customer.name,
-                phone: customer.phone,
-                lastOrder: customer.lastOrderDate || customer.createdAt,
-                totalOrders: customer.totalOrders || 0,
-                totalSpent: customer.totalSpent || 0
-              });
-            })
-        : [];
-      
-      setDashboardData(prev => ({
-        ...prev,
-        recentCustomers: recentCustomers,
-        stats: {
-          ...prev.stats,
-          totalCustomers: allCustomers?.length || 0 // Update total customers count
-        }
-      }));
-      
-      return { success: true, data: recentCustomers };
-    } catch (err) {
-      console.error('Error fetching recent customers:', err);
-      
-      // Set empty array on error to prevent crashes
-      setDashboardData(prev => ({
-        ...prev,
-        recentCustomers: [],
-        stats: {
-          ...prev.stats,
-          totalCustomers: 0
-        }
-      }));
-      
-      return { success: false, error: 'Failed to fetch recent customers. Please try again.' };
-    } finally {
-      setCustomersLoading(false);
-    }
-  }, []);
-
-  // Fetch recent orders using getAllOrders
-  const fetchRecentOrders = useCallback(async () => {
-    try {
-      console.log('🔍 Fetching recent orders...');
-      
-      // Use getAllOrders to get proper order objects with populated customer data
-      const allOrders = await OrderService.getAllOrders();
-      
-      console.log('🔍 Raw orders from API:', allOrders);
-      
-      // Get the most recent orders (first 5 since they're sorted by createdAt desc)
-      const recentOrders = Array.isArray(allOrders) 
-        ? allOrders.slice(0, 5) // Get first 5 orders (most recent)
-        : [];
-      
-      console.log('🔍 Recent orders to validate:', recentOrders);
-      
-      // Validate and normalize order data
-      const validatedOrders = recentOrders.map(order => {
-        console.log('🔍 Validating order:', order._id, 'customer:', order.customerId?.fullName);
-        return validateOrder(order);
-      });
-      
-      console.log('🔍 Final validated orders:', validatedOrders);
-      
-      setDashboardData(prev => ({
-        ...prev,
-        recentOrders: validatedOrders
-      }));
-      
-      return { success: true, data: validatedOrders };
-    } catch (err) {
-      console.error('Error fetching recent orders:', err);
-      
-      // Set empty array on error to prevent crashes
-      setDashboardData(prev => ({
-        ...prev,
-        recentOrders: []
-      }));
-      
-      return { success: false, error: 'Failed to fetch recent orders. Please try again.' };
-    }
-  }, []);
-
-  // Comprehensive dashboard data fetcher
+  // Fetch complete dashboard data using the new service
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       
-      // Fetch all data concurrently
-      const results = await Promise.allSettled([
-        fetchDashboardStats(),
-        fetchRecentCustomers(),
-        fetchRecentOrders()
-      ]);
+      console.log('🔄 Fetching dashboard data from service...');
       
-      // Check for any failures
-      const failures = results.filter(result => result.status === 'rejected' || !result.value?.success);
+      // Use the comprehensive dashboard service method
+      const data = await dashboardService.getDashboardData();
       
-      if (failures.length > 0) {
-        console.warn('Some dashboard data failed to load:', failures);
-      }
+      console.log('✅ Dashboard data received:', data);
       
-      return { 
-        success: failures.length === 0, 
-        partialSuccess: failures.length < results.length,
-        errors: failures.map(f => f.reason || f.value?.error).filter(Boolean)
-      };
+      setDashboardData(data);
+      
+      return { success: true, data };
     } catch (err) {
-      console.error('Error fetching dashboard data:', err);
-      return { success: false, error: 'Failed to fetch dashboard data' };
+      console.error('❌ Error fetching dashboard data:', err);
+      setError(err.message || 'Failed to fetch dashboard data');
+      
+      return { success: false, error: err.message };
     } finally {
       setLoading(false);
     }
-  }, [fetchDashboardStats, fetchRecentCustomers, fetchRecentOrders]);
+  }, []);
 
-  // Refresh customer data
-  const refreshCustomerData = useCallback(async () => {
-    const results = await Promise.allSettled([
-      fetchDashboardStats(),
-      fetchRecentCustomers()
-    ]);
-    
-    const failures = results.filter(result => result.status === 'rejected' || !result.value?.success);
-    
-    return {
-      success: failures.length === 0,
-      partialSuccess: failures.length < results.length,
-      errors: failures.map(f => f.reason || f.value?.error).filter(Boolean)
-    };
-  }, [fetchDashboardStats, fetchRecentCustomers]);
+  // Refresh specific dashboard metrics
+  const refreshMetric = useCallback(async (metric) => {
+    try {
+      setRefreshing(true);
+      
+      console.log(`🔄 Refreshing ${metric} metric...`);
+      
+      const data = await dashboardService.refreshMetric(metric);
+      
+      // Update specific part of dashboard data based on metric
+      setDashboardData(prev => {
+        switch (metric) {
+          case 'stats':
+            return { ...prev, stats: { ...prev.stats, ...data.stats } };
+          case 'orders':
+            return { ...prev, recentOrders: data };
+          case 'assistants':
+            return { ...prev, assistantStats: data };
+          case 'customers':
+            return { ...prev, customerStats: data };
+          case 'messages':
+            return { ...prev, recentMessages: data };
+          default:
+            return prev;
+        }
+      });
+      
+      console.log(`✅ ${metric} metric refreshed successfully`);
+      
+      return { success: true, data };
+    } catch (err) {
+      console.error(`❌ Error refreshing ${metric} metric:`, err);
+      return { success: false, error: err.message };
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
-  // Refresh order data method
-  const refreshOrderData = useCallback(async () => {
-    const results = await Promise.allSettled([
-      fetchDashboardStats(),
-      fetchRecentOrders()
-    ]);
-    
-    const failures = results.filter(result => result.status === 'rejected' || !result.value?.success);
-    
-    return {
-      success: failures.length === 0,
-      partialSuccess: failures.length < results.length,
-      errors: failures.map(f => f.reason || f.value?.error).filter(Boolean)
-    };
-  }, [fetchDashboardStats, fetchRecentOrders]);
-
-  // Initial data fetch
-  useEffect(() => {
-    const initializeDashboard = async () => {
+  // Refresh all dashboard data
+  const refreshDashboard = useCallback(async () => {
+    try {
+      setRefreshing(true);
+      setError(null);
+      
+      console.log('🔄 Refreshing complete dashboard...');
+      
       const result = await fetchDashboardData();
       
-      if (!result.success && !result.partialSuccess) {
-        console.error('Failed to initialize dashboard data');
+      if (result.success) {
+        console.log('✅ Dashboard refreshed successfully');
+      }
+      
+      return result;
+    } catch (err) {
+      console.error('❌ Error refreshing dashboard:', err);
+      setError(err.message || 'Failed to refresh dashboard');
+      return { success: false, error: err.message };
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchDashboardData]);
+
+  // Initial data fetch on mount
+  useEffect(() => {
+    const initializeDashboard = async () => {
+      console.log('🚀 Initializing dashboard...');
+      
+      // Always fetch dashboard data
+      const dashboardResult = await fetchDashboardData();
+      
+      if (!dashboardResult.success) {
+        console.error('❌ Failed to initialize dashboard');
+      } else {
+        console.log('✅ Dashboard initialized successfully');
       }
     };
 
     initializeDashboard();
   }, [fetchDashboardData]);
 
-  // Computed assistant stats with safe fallbacks
-  const assistantStats = {
-    total: dashboardData.stats.totalAssistants || 0,
-    active: 0, // Will be computed from actual assistants data when needed
-    inactive: 0 // Will be computed from actual assistants data when needed
-  };
+  // Auto-refresh dashboard data every 5 minutes (configurable via environment)
+  useEffect(() => {
+    // Check if auto-refresh is enabled (default to false for safety)
+    const autoRefreshEnabled = window.REACT_APP_AUTO_REFRESH === 'true' || 
+                              (typeof window !== 'undefined' && window.location.search.includes('autoRefresh=true'));
+    
+    if (autoRefreshEnabled) {
+      const interval = setInterval(() => {
+        console.log('🔄 Auto-refreshing dashboard...');
+        refreshDashboard();
+      }, 5 * 60 * 1000); // 5 minutes
 
-  const customerStats = {
-    total: dashboardData.recentCustomers?.length || 0,
-    totalRevenue: dashboardData.recentCustomers?.reduce((sum, customer) => sum + (customer?.totalSpent || 0), 0) || 0
-  };
+      return () => clearInterval(interval);
+    }
+  }, [refreshDashboard]);
 
+  // Computed values for backward compatibility and convenience
+  const assistantStats = dashboardData.assistantStats;
+  const customerStats = dashboardData.customerStats;
+  
+  // Enhanced order stats
   const orderStats = {
     total: dashboardData.recentOrders?.length || 0,
     pending: dashboardData.recentOrders?.filter(order => order?.status === 'pending')?.length || 0,
     completed: dashboardData.recentOrders?.filter(order => order?.status === 'completed')?.length || 0,
-    totalValue: dashboardData.recentOrders?.reduce((sum, order) => sum + (order?.amount || 0), 0) || 0
+    processing: dashboardData.recentOrders?.filter(order => order?.status === 'processing')?.length || 0,
+    cancelled: dashboardData.recentOrders?.filter(order => order?.status === 'cancelled')?.length || 0,
+    totalValue: dashboardData.recentOrders?.reduce((sum, order) => sum + (order?.amount || 0), 0) || 0,
+    averageValue: dashboardData.recentOrders?.length > 0 
+      ? (dashboardData.recentOrders.reduce((sum, order) => sum + (order?.amount || 0), 0) / dashboardData.recentOrders.length)
+      : 0
   };
 
+  // Message stats
+  const messageStats = {
+    total: dashboardData.recentMessages?.length || 0,
+    unread: dashboardData.recentMessages?.filter(msg => msg?.status === 'unread')?.length || 0,
+    read: dashboardData.recentMessages?.filter(msg => msg?.status === 'read')?.length || 0,
+    responded: dashboardData.recentMessages?.filter(msg => msg?.status === 'responded')?.length || 0
+  };
+
+  // Utility functions using the service layer utilities
+  const formatCurrency = dashboardUtils.formatCurrency;
+  const formatDate = dashboardUtils.formatDate;
+  const formatRelativeTime = dashboardUtils.formatRelativeTime;
+  const getStatusColor = dashboardUtils.getStatusColor;
+  const calculatePercentageChange = dashboardUtils.calculatePercentageChange;
+
+  // Health check function
+  const checkSystemHealth = useCallback(async () => {
+    try {
+      const healthData = await dashboardService.getSystemHealth();
+      return {
+        success: true,
+        data: healthData
+      };
+    } catch (err) {
+      console.error('❌ System health check failed:', err);
+      return {
+        success: false,
+        error: err.message
+      };
+    }
+  }, []);
+
+  // Data validation helpers
+  const isDataStale = useCallback(() => {
+    if (!dashboardData.lastUpdated) return true;
+    
+    const lastUpdate = new Date(dashboardData.lastUpdated);
+    const now = new Date();
+    const diffMinutes = (now - lastUpdate) / (1000 * 60);
+    
+    // Consider data stale after 10 minutes
+    return diffMinutes > 10;
+  }, [dashboardData.lastUpdated]);
+
   return {
-    // Data states
+    // Core data states
     dashboardData,
     loading,
-    customersLoading,
-    statsLoading,
+    refreshing,
+    error,
+    
+    // Computed stats for backward compatibility
     assistantStats,
     customerStats,
     orderStats,
+    messageStats,
     
-    // Fetch methods
+    // Main fetch methods
     fetchDashboardData,
-    fetchDashboardStats,
-    fetchRecentCustomers,
-    fetchRecentOrders,
-    refreshCustomerData,
-    refreshOrderData,
     
-    // Direct state setters (for advanced usage)
+    // Refresh methods
+    refreshMetric,
+    refreshDashboard,
+    
+    // Utility functions from service layer
+    formatCurrency,
+    formatDate,
+    formatRelativeTime,
+    getStatusColor,
+    calculatePercentageChange,
+    
+    // System health
+    checkSystemHealth,
+    
+    // Data validation
+    isDataStale,
+    
+    // Direct state setters (for advanced usage if needed)
     setDashboardData,
     setLoading,
-    setCustomersLoading,
-    setStatsLoading
+    setError,
+    
+    // Helper flags
+    isInitialized: !loading && !!dashboardData.lastUpdated,
+    hasError: !!error,
+    hasData: !!dashboardData.stats && dashboardData.stats.totalCustomers >= 0,
+    
+    // Quick access to key metrics
+    totalCustomers: dashboardData.stats.totalCustomers,
+    totalOrders: dashboardData.stats.todayOrders,
+    totalAssistants: dashboardData.stats.totalAssistants,
+    activeChats: dashboardData.stats.activeChats,
+    monthlyRevenue: dashboardData.stats.monthlyRevenue,
+    
+    // Status indicators
+    isDashboardHealthy: !error && !loading && dashboardData.lastUpdated,
+    needsRefresh: isDataStale()
   };
 };
 
