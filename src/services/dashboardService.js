@@ -12,21 +12,22 @@ export const dashboardService = {
    */
   getDashboardStats: async () => {
     try {
-      const response = await apiHelpers.get(API_ENDPOINTS.STATS.DASHBOARD);
+      const response = await apiHelpers.get('/api/admin-dashboard/stats');
       
       // Transform API response to match dashboard component expectations
       return {
         stats: {
-          totalCustomers: response.data?.customers?.total || 0,
-          activeChats: response.data?.messages?.activeChats || 0,
-          monthlyRevenue: response.data?.revenue?.monthly || 0,
-          todayOrders: response.data?.orders?.today || 0,
-          totalAssistants: response.data?.assistants?.total || 0,
-          responseRate: response.data?.messages?.responseRate || 0,
-          activeCustomers: response.data?.customers?.active || 0,
-          newCustomers: response.data?.customers?.new || 0,
+          totalCustomers: response.data?.customerCount || 0,
+          todayOrders: response.data?.orderCount || 0,
+          totalAssistants: response.data?.assistantCount || 0,
+          // Set default values for metrics not provided by backend
+          activeChats: 0,
+          monthlyRevenue: 0,
+          responseRate: 0,
+          activeCustomers: 0,
+          newCustomers: 0,
         },
-        timestamp: response.timestamp || new Date().toISOString(),
+        timestamp: response.data?.timestamp || new Date().toISOString(),
         success: true
       };
     } catch (error) {
@@ -42,17 +43,18 @@ export const dashboardService = {
    */
   getRecentOrders: async (limit = 5) => {
     try {
-      const response = await apiHelpers.get(`${API_ENDPOINTS.ORDERS.LIST}?limit=${limit}&sort=-createdAt`);
+      const response = await apiHelpers.get('/api/admin-dashboard/stats/orders');
       
       // Transform orders data for dashboard display
-      return response.data?.map(order => ({
+      const recentOrders = response.data?.recentOrders || [];
+      return recentOrders.slice(0, limit).map(order => ({
         id: order._id || order.id,
-        customer: order.customerName || order.customer?.name || 'Unknown Customer',
-        item: order.items?.[0]?.name || order.description || 'Order Items',
-        amount: order.totalAmount || order.amount || 0,
+        customer: order.customerId?.fullName || 'Unknown Customer',
+        item: order.orderNumber || 'Order Items',
+        amount: order.orderTotal || 0,
         status: order.status || 'pending',
         date: new Date(order.createdAt).toLocaleDateString() || 'N/A'
-      })) || [];
+      }));
     } catch (error) {
       console.error('Failed to fetch recent orders:', error);
       // Return empty array on error to prevent UI breaks
@@ -66,15 +68,17 @@ export const dashboardService = {
    */
   getAssistantStats: async () => {
     try {
-      const response = await apiHelpers.get(API_ENDPOINTS.STATS.USERS);
+      const response = await apiHelpers.get('/api/admin-dashboard/stats/users');
       
-      const assistants = response.data?.assistants || {};
+      const userDistribution = response.data?.userDistribution || {};
+      const assistantStats = response.data?.assistantStats || [];
+      
       return {
-        total: assistants.total || 0,
-        active: assistants.active || 0,
-        inactive: assistants.inactive || 0,
-        online: assistants.online || 0,
-        responseTime: assistants.averageResponseTime || 0
+        total: userDistribution.assistant || 0,
+        active: assistantStats.filter(a => a.isActive).length || 0,
+        inactive: assistantStats.filter(a => !a.isActive).length || 0,
+        online: 0, // Backend doesn't provide online status
+        responseTime: 0 // Backend doesn't provide response time
       };
     } catch (error) {
       console.error('Failed to fetch assistant stats:', error);
@@ -95,14 +99,22 @@ export const dashboardService = {
    */
   getCustomerStats: async () => {
     try {
-      const response = await apiHelpers.get(API_ENDPOINTS.STATS.CUSTOMERS);
+      const response = await apiHelpers.get('/api/admin-dashboard/stats/customers');
+      
+      const statusDistribution = response.data?.statusDistribution || {};
+      const monthlyGrowth = response.data?.monthlyGrowth || [];
+      
+      // Calculate growth percentage from monthly data
+      const growth = monthlyGrowth.length >= 2 
+        ? ((monthlyGrowth[monthlyGrowth.length - 1]?.count || 0) - (monthlyGrowth[monthlyGrowth.length - 2]?.count || 0)) 
+        : 0;
       
       return {
         total: response.data?.total || 0,
-        active: response.data?.active || 0,
-        new: response.data?.new || 0,
-        growth: response.data?.growth || 0,
-        retention: response.data?.retention || 0
+        active: statusDistribution.active || 0,
+        new: monthlyGrowth[monthlyGrowth.length - 1]?.count || 0,
+        growth: growth,
+        retention: 0 // Backend doesn't provide retention data
       };
     } catch (error) {
       console.error('Failed to fetch customer stats:', error);
@@ -123,17 +135,18 @@ export const dashboardService = {
    */
   getRecentMessages: async (limit = 10) => {
     try {
-      const response = await apiHelpers.get(`${API_ENDPOINTS.MESSAGES.RECENT}?limit=${limit}`);
+      const response = await apiHelpers.get(`/api/admin-dashboard/recent?limit=${limit}`);
       
-      return response.data?.map(message => ({
+      const messages = response.data?.messages || [];
+      return messages.map(message => ({
         id: message._id || message.id,
-        customer: message.customerName || message.customer?.name || 'Unknown',
-        subject: message.subject || 'No Subject',
+        customer: message.customer?.fullName || 'Unknown',
+        subject: 'Message', // Backend doesn't provide subject
         snippet: message.content?.substring(0, 100) + '...' || '',
         timestamp: new Date(message.createdAt).toLocaleString(),
         status: message.status || 'unread',
-        priority: message.priority || 'normal'
-      })) || [];
+        priority: 'normal' // Backend doesn't provide priority
+      }));
     } catch (error) {
       console.error('Failed to fetch recent messages:', error);
       return [];
@@ -146,14 +159,14 @@ export const dashboardService = {
    */
   getSystemHealth: async () => {
     try {
-      const response = await apiHelpers.get('/api/system/health');
+      const response = await apiHelpers.get('/api/admin-dashboard/');
       
       return {
-        status: response.status || 'unknown',
-        uptime: response.uptime || 0,
-        memoryUsage: response.memory || 0,
-        activeConnections: response.connections || 0,
-        lastUpdate: response.timestamp || new Date().toISOString()
+        status: response.data?.status || 'unknown',
+        uptime: response.data?.server?.uptime || 0,
+        memoryUsage: response.data?.server?.memory?.used || 0,
+        activeConnections: 0, // Backend doesn't provide connection count
+        lastUpdate: response.data?.timestamp || new Date().toISOString()
       };
     } catch (error) {
       console.error('Failed to fetch system health:', error);
