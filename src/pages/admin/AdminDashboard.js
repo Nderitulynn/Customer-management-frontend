@@ -27,24 +27,27 @@ const AdminDashboard = () => {
   const {
     dashboardData,
     loading,
-    customersLoading,
-    statsLoading,
+    refreshing,
+    error,
     assistantStats,
     customerStats,
     orderStats,
+    messageStats,
     fetchDashboardData,
-    fetchDashboardStats,
-    fetchRecentCustomers,
-    fetchRecentOrders,
-    refreshCustomerData,
-    refreshOrderData
+    refreshMetric,
+    refreshDashboard,
+    formatCurrency,
+    formatDate,
+    getStatusColor,
+    isDashboardHealthy,
+    needsRefresh
   } = useDashboardData();
 
   const {
     successMessage,
-    error,
+    error: notificationError,
     setSuccessMessage,
-    setError
+    setError: setNotificationError
   } = useNotifications();
 
   // Local component state
@@ -52,18 +55,20 @@ const AdminDashboard = () => {
     return navigationHelpers.getDefaultActiveSection('admin') || 'overview';
   });
 
-  const [refreshing, setRefreshing] = useState({
+  const [metricRefreshing, setMetricRefreshing] = useState({
     stats: false,
     customers: false,
     orders: false,
-    assistants: false
+    assistants: false,
+    messages: false
   });
 
   const [sectionErrors, setSectionErrors] = useState({
     stats: null,
     customers: null,
     orders: null,
-    assistants: null
+    assistants: null,
+    messages: null
   });
 
   // Handle section change from sidebar
@@ -72,109 +77,45 @@ const AdminDashboard = () => {
   }, []);
 
   // Enhanced refresh handlers with error handling
-  const handleRefreshStats = useCallback(async () => {
-    setRefreshing(prev => ({ ...prev, stats: true }));
-    setSectionErrors(prev => ({ ...prev, stats: null }));
+  const handleRefreshMetric = useCallback(async (metric) => {
+    setMetricRefreshing(prev => ({ ...prev, [metric]: true }));
+    setSectionErrors(prev => ({ ...prev, [metric]: null }));
     
     try {
-      const result = await fetchDashboardStats();
+      const result = await refreshMetric(metric);
       if (result.success) {
-        setSuccessMessage('Dashboard statistics refreshed successfully');
+        setSuccessMessage(`${metric.charAt(0).toUpperCase() + metric.slice(1)} data refreshed successfully`);
       } else {
-        setSectionErrors(prev => ({ ...prev, stats: result.error }));
-        setError('Failed to refresh dashboard statistics');
+        setSectionErrors(prev => ({ ...prev, [metric]: result.error }));
+        setNotificationError(`Failed to refresh ${metric} data`);
       }
     } catch (err) {
-      setSectionErrors(prev => ({ ...prev, stats: err.message }));
-      setError('Failed to refresh dashboard statistics');
+      setSectionErrors(prev => ({ ...prev, [metric]: err.message }));
+      setNotificationError(`Failed to refresh ${metric} data`);
     } finally {
-      setRefreshing(prev => ({ ...prev, stats: false }));
+      setMetricRefreshing(prev => ({ ...prev, [metric]: false }));
     }
-  }, [fetchDashboardStats, setSuccessMessage, setError]);
-
-  const handleRefreshCustomers = useCallback(async () => {
-    setRefreshing(prev => ({ ...prev, customers: true }));
-    setSectionErrors(prev => ({ ...prev, customers: null }));
-    
-    try {
-      const result = await refreshCustomerData();
-      if (result.success) {
-        setSuccessMessage('Customer data refreshed successfully');
-      } else if (result.partialSuccess) {
-        setSuccessMessage('Customer data partially refreshed');
-        setSectionErrors(prev => ({ ...prev, customers: result.errors.join(', ') }));
-      } else {
-        setSectionErrors(prev => ({ ...prev, customers: result.errors.join(', ') }));
-        setError('Failed to refresh customer data');
-      }
-    } catch (err) {
-      setSectionErrors(prev => ({ ...prev, customers: err.message }));
-      setError('Failed to refresh customer data');
-    } finally {
-      setRefreshing(prev => ({ ...prev, customers: false }));
-    }
-  }, [refreshCustomerData, setSuccessMessage, setError]);
-
-  const handleRefreshOrders = useCallback(async () => {
-    setRefreshing(prev => ({ ...prev, orders: true }));
-    setSectionErrors(prev => ({ ...prev, orders: null }));
-    
-    try {
-      const result = await refreshOrderData();
-      if (result.success) {
-        setSuccessMessage('Order data refreshed successfully');
-      } else if (result.partialSuccess) {
-        setSuccessMessage('Order data partially refreshed');
-        setSectionErrors(prev => ({ ...prev, orders: result.errors.join(', ') }));
-      } else {
-        setSectionErrors(prev => ({ ...prev, orders: result.errors.join(', ') }));
-        setError('Failed to refresh order data');
-      }
-    } catch (err) {
-      setSectionErrors(prev => ({ ...prev, orders: err.message }));
-      setError('Failed to refresh order data');
-    } finally {
-      setRefreshing(prev => ({ ...prev, orders: false }));
-    }
-  }, [refreshOrderData, setSuccessMessage, setError]);
+  }, [refreshMetric, setSuccessMessage, setNotificationError]);
 
   const handleRefreshAll = useCallback(async () => {
-    setRefreshing({
-      stats: true,
-      customers: true,
-      orders: true,
-      assistants: true
-    });
-    setSectionErrors({
-      stats: null,
-      customers: null,
-      orders: null,
-      assistants: null
-    });
-    
     try {
-      const result = await fetchDashboardData();
+      const result = await refreshDashboard();
       if (result.success) {
         setSuccessMessage('All dashboard data refreshed successfully');
-      } else if (result.partialSuccess) {
-        setSuccessMessage('Dashboard data partially refreshed');
-        if (result.errors.length > 0) {
-          setError(`Some sections failed to load: ${result.errors.join(', ')}`);
-        }
+        setSectionErrors({
+          stats: null,
+          customers: null,
+          orders: null,
+          assistants: null,
+          messages: null
+        });
       } else {
-        setError('Failed to refresh dashboard data');
+        setNotificationError('Failed to refresh dashboard data');
       }
     } catch (err) {
-      setError('Failed to refresh dashboard data');
-    } finally {
-      setRefreshing({
-        stats: false,
-        customers: false,
-        orders: false,
-        assistants: false
-      });
+      setNotificationError('Failed to refresh dashboard data');
     }
-  }, [fetchDashboardData, setSuccessMessage, setError]);
+  }, [refreshDashboard, setSuccessMessage, setNotificationError]);
 
   // Stats configuration with enhanced error handling
   const statsData = [
@@ -183,8 +124,8 @@ const AdminDashboard = () => {
       value: dashboardData.stats.totalCustomers || 0,
       icon: Users,
       color: "bg-blue-500",
-      change: 12,
-      loading: statsLoading || refreshing.stats,
+      change: customerStats.growth || 0,
+      loading: loading || metricRefreshing.stats,
       error: sectionErrors.stats
     },
     {
@@ -193,17 +134,17 @@ const AdminDashboard = () => {
       icon: MessageSquare,
       color: "bg-green-500",
       change: 8,
-      loading: statsLoading || refreshing.stats,
-      error: sectionErrors.stats
+      loading: loading || metricRefreshing.messages,
+      error: sectionErrors.messages
     },
     {
       title: "Monthly Revenue",
-      value: `KSh ${(dashboardData.stats.monthlyRevenue || 0).toLocaleString()}`,
+      value: formatCurrency(dashboardData.stats.monthlyRevenue || 0),
       icon: DollarSign,
       color: "bg-emerald-500",
       change: 15,
-      loading: statsLoading || refreshing.stats,
-      error: sectionErrors.stats
+      loading: loading || metricRefreshing.orders,
+      error: sectionErrors.orders
     },
     {
       title: "Today's Orders",
@@ -211,7 +152,7 @@ const AdminDashboard = () => {
       icon: TrendingUp,
       color: "bg-purple-500",
       change: -3,
-      loading: statsLoading || refreshing.orders,
+      loading: loading || metricRefreshing.orders,
       error: sectionErrors.orders
     },
     {
@@ -219,7 +160,7 @@ const AdminDashboard = () => {
       value: dashboardData.stats.totalAssistants || 0,
       icon: UserPlus,
       color: "bg-orange-500",
-      loading: refreshing.assistants,
+      loading: loading || metricRefreshing.assistants,
       error: sectionErrors.assistants
     },
     {
@@ -228,27 +169,13 @@ const AdminDashboard = () => {
       icon: BarChart3,
       color: "bg-cyan-500",
       change: 2,
-      loading: statsLoading || refreshing.stats,
+      loading: loading || metricRefreshing.stats,
       error: sectionErrors.stats
     }
   ];
 
-  const getStatusColor = (status) => {
-    switch (status?.toLowerCase()) {
-      case 'processing': return 'bg-yellow-100 text-yellow-800';
-      case 'shipped': return 'bg-blue-100 text-blue-800';
-      case 'delivered': return 'bg-green-100 text-green-800';
-      case 'completed': return 'bg-green-100 text-green-800';
-      case 'active': return 'bg-green-100 text-green-800';
-      case 'inactive': return 'bg-gray-100 text-gray-800';
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'cancelled': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
   // Enhanced section header component with refresh functionality
-  const SectionHeader = ({ title, onRefresh, refreshing, error, showViewAll, onViewAll }) => (
+  const SectionHeader = ({ title, onRefresh, refreshing, error, showViewAll, onViewAll, metric }) => (
     <div className="flex items-center justify-between">
       <div className="flex items-center space-x-2">
         <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
@@ -258,8 +185,14 @@ const AdminDashboard = () => {
             <span className="text-xs">Error</span>
           </div>
         )}
-        {!error && !refreshing && (
+        {!error && !refreshing && isDashboardHealthy && (
           <Wifi className="w-4 h-4 text-green-500" title="Connected" />
+        )}
+        {needsRefresh && (
+          <div className="flex items-center space-x-1 text-yellow-500" title="Data may be stale">
+            <AlertCircle className="w-4 h-4" />
+            <span className="text-xs">Stale</span>
+          </div>
         )}
       </div>
       <div className="flex items-center space-x-2">
@@ -272,7 +205,7 @@ const AdminDashboard = () => {
           </button>
         )}
         <button
-          onClick={onRefresh}
+          onClick={() => metric ? handleRefreshMetric(metric) : onRefresh()}
           disabled={refreshing}
           className="flex items-center space-x-1 px-2 py-1 text-sm text-gray-600 hover:text-gray-800 disabled:opacity-50"
           title="Refresh data"
@@ -356,7 +289,25 @@ const AdminDashboard = () => {
 
   const renderOverviewContent = () => (
     <div className="space-y-6">
-     {/* Stats Grid */}
+      {/* Global Refresh Button */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard Overview</h1>
+          <p className="text-sm text-gray-600 mt-1">
+            Last updated: {dashboardData.lastUpdated ? formatDate(dashboardData.lastUpdated) : 'Never'}
+          </p>
+        </div>
+        <button
+          onClick={handleRefreshAll}
+          disabled={refreshing}
+          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          <span>{refreshing ? 'Refreshing All...' : 'Refresh All'}</span>
+        </button>
+      </div>
+
+      {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
         {statsData.map((stat, index) => (
           <StatCard
@@ -379,21 +330,21 @@ const AdminDashboard = () => {
           <div className="p-6 border-b border-gray-200">
             <SectionHeader
               title="Recent Orders"
-              onRefresh={handleRefreshOrders}
-              refreshing={refreshing.orders}
+              refreshing={metricRefreshing.orders}
               error={sectionErrors.orders}
               showViewAll={true}
               onViewAll={() => handleSectionChange('orders')}
+              metric="orders"
             />
           </div>
           <div className="p-6">
             {sectionErrors.orders ? (
               <ErrorState 
                 error={sectionErrors.orders}
-                onRetry={handleRefreshOrders}
-                retrying={refreshing.orders}
+                onRetry={() => handleRefreshMetric('orders')}
+                retrying={metricRefreshing.orders}
               />
-            ) : refreshing.orders ? (
+            ) : metricRefreshing.orders ? (
               <div className="space-y-4">
                 {[...Array(3)].map((_, i) => <SkeletonCard key={i} />)}
               </div>
@@ -403,7 +354,7 @@ const AdminDashboard = () => {
                 description="No orders have been placed recently."
                 action={{
                   label: "Refresh",
-                  onClick: handleRefreshOrders
+                  onClick: () => handleRefreshMetric('orders')
                 }}
               />
             ) : (
@@ -416,7 +367,7 @@ const AdminDashboard = () => {
                       <p className="text-xs text-gray-500">{order.date || 'N/A'}</p>
                     </div>
                     <div className="text-right">
-                      <p className="font-semibold text-gray-900">KSh {(order.amount || 0).toLocaleString()}</p>
+                      <p className="font-semibold text-gray-900">{formatCurrency(order.amount || 0)}</p>
                       <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(order.status)}`}>
                         {order.status || 'pending'}
                       </span>
@@ -433,21 +384,21 @@ const AdminDashboard = () => {
           <div className="p-6 border-b border-gray-200">
             <SectionHeader
               title="Assistant Summary"
-              onRefresh={() => handleRefreshStats()}
-              refreshing={refreshing.assistants || refreshing.stats}
-              error={sectionErrors.assistants || sectionErrors.stats}
+              refreshing={metricRefreshing.assistants}
+              error={sectionErrors.assistants}
               showViewAll={true}
               onViewAll={() => handleSectionChange('assistants')}
+              metric="assistants"
             />
           </div>
           <div className="p-6">
-            {(sectionErrors.assistants || sectionErrors.stats) ? (
+            {sectionErrors.assistants ? (
               <ErrorState 
-                error={sectionErrors.assistants || sectionErrors.stats}
-                onRetry={handleRefreshStats}
-                retrying={refreshing.stats}
+                error={sectionErrors.assistants}
+                onRetry={() => handleRefreshMetric('assistants')}
+                retrying={metricRefreshing.assistants}
               />
-            ) : (refreshing.assistants || refreshing.stats) ? (
+            ) : metricRefreshing.assistants ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="animate-pulse bg-gray-100 rounded-lg h-20"></div>
@@ -483,53 +434,109 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      {/* Customer Overview Summary Card */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div className="p-6 border-b border-gray-200">
-          <SectionHeader
-            title="Customer Overview"
-            onRefresh={handleRefreshCustomers}
-            refreshing={refreshing.customers}
-            error={sectionErrors.customers}
-            showViewAll={true}
-            onViewAll={() => handleSectionChange('customers')}
-          />
-        </div>
-        <div className="p-6">
-          {sectionErrors.customers ? (
-            <ErrorState 
+      {/* Customer Overview and Messages Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Customer Overview Summary Card */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+          <div className="p-6 border-b border-gray-200">
+            <SectionHeader
+              title="Customer Overview"
+              refreshing={metricRefreshing.customers}
               error={sectionErrors.customers}
-              onRetry={handleRefreshCustomers}
-              retrying={refreshing.customers}
+              showViewAll={true}
+              onViewAll={() => handleSectionChange('customers')}
+              metric="customers"
             />
-          ) : refreshing.customers ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="animate-pulse bg-gray-100 rounded-lg h-20"></div>
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="text-center p-4 bg-blue-50 rounded-lg">
-                <p className="text-2xl font-bold text-blue-600">
-                  {dashboardData.stats.totalCustomers || 0}
-                </p>
-                <p className="text-sm text-blue-700">Total Customers</p>
+          </div>
+          <div className="p-6">
+            {sectionErrors.customers ? (
+              <ErrorState 
+                error={sectionErrors.customers}
+                onRetry={() => handleRefreshMetric('customers')}
+                retrying={metricRefreshing.customers}
+              />
+            ) : metricRefreshing.customers ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="animate-pulse bg-gray-100 rounded-lg h-20"></div>
+                ))}
               </div>
-              <div className="text-center p-4 bg-green-50 rounded-lg">
-                <p className="text-2xl font-bold text-green-600">
-                  {dashboardData.stats.activeCustomers || 0}
-                </p>
-                <p className="text-sm text-green-700">Active This Month</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="text-center p-4 bg-blue-50 rounded-lg">
+                  <p className="text-2xl font-bold text-blue-600">
+                    {customerStats.total || 0}
+                  </p>
+                  <p className="text-sm text-blue-700">Total Customers</p>
+                </div>
+                <div className="text-center p-4 bg-green-50 rounded-lg">
+                  <p className="text-2xl font-bold text-green-600">
+                    {customerStats.active || 0}
+                  </p>
+                  <p className="text-sm text-green-700">Active Customers</p>
+                </div>
+                <div className="text-center p-4 bg-yellow-50 rounded-lg">
+                  <p className="text-2xl font-bold text-yellow-600">
+                    {customerStats.new || 0}
+                  </p>
+                  <p className="text-sm text-yellow-700">New Customers</p>
+                </div>
               </div>
-              <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                <p className="text-2xl font-bold text-yellow-600">
-                  {dashboardData.stats.newCustomers || 0}
-                </p>
-                <p className="text-sm text-yellow-700">New This Week</p>
+            )}
+          </div>
+        </div>
+
+        {/* Recent Messages */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+          <div className="p-6 border-b border-gray-200">
+            <SectionHeader
+              title="Recent Messages"
+              refreshing={metricRefreshing.messages}
+              error={sectionErrors.messages}
+              showViewAll={true}
+              onViewAll={() => handleSectionChange('messages')}
+              metric="messages"
+            />
+          </div>
+          <div className="p-6">
+            {sectionErrors.messages ? (
+              <ErrorState 
+                error={sectionErrors.messages}
+                onRetry={() => handleRefreshMetric('messages')}
+                retrying={metricRefreshing.messages}
+              />
+            ) : metricRefreshing.messages ? (
+              <div className="space-y-4">
+                {[...Array(3)].map((_, i) => <SkeletonCard key={i} />)}
               </div>
-            </div>
-          )}
+            ) : dashboardData.recentMessages.length === 0 ? (
+              <EmptyState
+                title="No recent messages"
+                description="No messages have been received recently."
+                action={{
+                  label: "Refresh",
+                  onClick: () => handleRefreshMetric('messages')
+                }}
+              />
+            ) : (
+              <div className="space-y-4">
+                {dashboardData.recentMessages.map((message) => (
+                  <div key={message.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900">{message.customer || 'Unknown Customer'}</p>
+                      <p className="text-sm text-gray-600">{message.snippet || 'No content'}</p>
+                      <p className="text-xs text-gray-500">{message.timestamp || 'N/A'}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(message.status)}`}>
+                        {message.status || 'unread'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -602,9 +609,9 @@ const AdminDashboard = () => {
       {/* Notification Messages */}
       <NotificationDisplay
         successMessage={successMessage}
-        error={error}
+        error={notificationError}
         onClearSuccess={() => setSuccessMessage('')}
-        onClearError={() => setError(null)}
+        onClearError={() => setNotificationError(null)}
       />
 
       {/* Render content based on active section */}
