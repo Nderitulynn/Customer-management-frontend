@@ -12,12 +12,12 @@ export const dashboardService = {
    */
   getDashboardStats: async () => {
     try {
-      const response = await apiHelpers.get('/api/admin-dashboard/stats');
-      
+     const response = await apiHelpers.get('/api/customers/stats');
+
       // Transform API response to match dashboard component expectations
       return {
         stats: {
-          totalCustomers: response.data?.customerCount || 0,
+          totalCustomers: response.data?.totalCustomers || 0,
           todayOrders: response.data?.orderCount || 0,
           totalAssistants: response.data?.assistantCount || 0,
           // Set default values for metrics not provided by backend
@@ -99,7 +99,13 @@ export const dashboardService = {
    */
   getCustomerStats: async () => {
     try {
+      console.log('🔍 DEBUG: Calling customer stats API...');
       const response = await apiHelpers.get('/api/admin-dashboard/stats/customers');
+      
+      console.log('🔍 DEBUG: Full API response:', response);
+      console.log('🔍 DEBUG: response.data:', response.data);
+      console.log('🔍 DEBUG: response.data?.data:', response.data?.data);
+      console.log('🔍 DEBUG: response.data?.data?.total:', response.data?.data?.total);
       
       const statusDistribution = response.data?.statusDistribution || {};
       const monthlyGrowth = response.data?.monthlyGrowth || [];
@@ -109,15 +115,18 @@ export const dashboardService = {
         ? ((monthlyGrowth[monthlyGrowth.length - 1]?.count || 0) - (monthlyGrowth[monthlyGrowth.length - 2]?.count || 0)) 
         : 0;
       
-      return {
+      const result = {
         total: response.data?.total || 0,
         active: statusDistribution.active || 0,
         new: monthlyGrowth[monthlyGrowth.length - 1]?.count || 0,
         growth: growth,
         retention: 0 // Backend doesn't provide retention data
       };
+      
+      console.log('🔍 DEBUG: Final customer stats result:', result);
+      return result;
     } catch (error) {
-      console.error('Failed to fetch customer stats:', error);
+      console.error('❌ ERROR: Failed to fetch customer stats:', error);
       return {
         total: 0,
         active: 0,
