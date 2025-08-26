@@ -108,24 +108,23 @@ const retryRequest = async (requestFn, maxRetries = 3, delay = 1000) => {
 class ReportService {
   
   // Get dashboard reports with caching
-  static async getDashboardReports(dateRange = '30d', useCache = true) {
-    const cacheKey = `dashboard_${dateRange}`;
+  static async getDashboardReports(params = {}) {
+    const { startDate, endDate, period = '30d', timezone = 'UTC' } = params;
+    const cacheKey = `dashboard_${JSON.stringify({ startDate, endDate, period, timezone })}`;
     
-    if (useCache) {
-      const cached = cacheUtils.get(cacheKey);
-      if (cached) return cached;
-    }
+    const cached = cacheUtils.get(cacheKey);
+    if (cached) return cached;
 
     try {
       const response = await retryRequest(() => 
         apiClient.get('/reports/dashboard', {
-          params: { dateRange }
+          params: { startDate, endDate, period, timezone }
         })
       );
 
       const data = response.data;
       
-      if (useCache && data.success) {
+      if (data.success) {
         cacheUtils.set(cacheKey, data);
       }
 
@@ -136,16 +135,44 @@ class ReportService {
     }
   }
 
+  // Get summary statistics
+  static async getSummaryStats(params = {}) {
+    const { startDate, endDate, period = '30d', timezone = 'UTC' } = params;
+    const cacheKey = `summary_${JSON.stringify({ startDate, endDate, period, timezone })}`;
+    
+    const cached = cacheUtils.get(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const response = await retryRequest(() =>
+        apiClient.get('/reports/summary', {
+          params: { startDate, endDate, period, timezone }
+        })
+      );
+
+      const data = response.data;
+      if (data.success) {
+        cacheUtils.set(cacheKey, data);
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Failed to fetch summary stats:', error);
+      throw this.handleError(error);
+    }
+  }
+
   // Get revenue reports
-  static async getRevenueReports(filters = {}) {
-    const cacheKey = `revenue_${JSON.stringify(filters)}`;
+  static async getRevenueReports(params = {}) {
+    const { startDate, endDate, period, timezone = 'UTC', groupBy } = params;
+    const cacheKey = `revenue_${JSON.stringify(params)}`;
     const cached = cacheUtils.get(cacheKey);
     if (cached) return cached;
 
     try {
       const response = await retryRequest(() =>
         apiClient.get('/reports/revenue', {
-          params: filters
+          params: { startDate, endDate, period, timezone, groupBy }
         })
       );
 
@@ -162,11 +189,13 @@ class ReportService {
   }
 
   // Get performance reports
-  static async getPerformanceReports(filters = {}) {
+  static async getPerformanceReports(params = {}) {
+    const { startDate, endDate, period, timezone = 'UTC', assistantId } = params;
+    
     try {
       const response = await retryRequest(() =>
         apiClient.get('/reports/performance', {
-          params: filters
+          params: { startDate, endDate, period, timezone, assistantId }
         })
       );
 
@@ -178,11 +207,13 @@ class ReportService {
   }
 
   // Get activity reports
-  static async getActivityReports(filters = {}) {
+  static async getActivityReports(params = {}) {
+    const { startDate, endDate, limit, offset } = params;
+    
     try {
       const response = await retryRequest(() =>
         apiClient.get('/reports/activity', {
-          params: filters
+          params: { startDate, endDate, limit, offset }
         })
       );
 
@@ -193,27 +224,83 @@ class ReportService {
     }
   }
 
-  // Get filtered reports data
-  static async getFilteredReports(filters = {}) {
+  // Get trend data for specific metrics
+  static async getTrendData(type, params = {}) {
+    const { startDate, endDate, interval = 'day' } = params;
+    const cacheKey = `trends_${type}_${JSON.stringify(params)}`;
+    const cached = cacheUtils.get(cacheKey);
+    if (cached) return cached;
+
     try {
       const response = await retryRequest(() =>
-        apiClient.post('/reports/filtered', filters)
+        apiClient.get(`/reports/trends/${type}`, {
+          params: { startDate, endDate, interval }
+        })
+      );
+
+      const data = response.data;
+      if (data.success) {
+        cacheUtils.set(cacheKey, data);
+      }
+
+      return data;
+    } catch (error) {
+      console.error(`Failed to fetch trend data for ${type}:`, error);
+      throw this.handleError(error);
+    }
+  }
+
+  // Get business metrics and ratios
+  static async getBusinessMetrics(params = {}) {
+    const { startDate, endDate, period = '30d', timezone = 'UTC' } = params;
+    const cacheKey = `metrics_${JSON.stringify(params)}`;
+    const cached = cacheUtils.get(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const response = await retryRequest(() =>
+        apiClient.get('/reports/metrics', {
+          params: { startDate, endDate, period, timezone }
+        })
+      );
+
+      const data = response.data;
+      if (data.success) {
+        cacheUtils.set(cacheKey, data);
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Failed to fetch business metrics:', error);
+      throw this.handleError(error);
+    }
+  }
+
+  // Generate custom reports
+  static async generateCustomReport(reportConfig) {
+    try {
+      const response = await retryRequest(() =>
+        apiClient.post('/reports/custom', reportConfig)
       );
 
       return response.data;
     } catch (error) {
-      console.error('Failed to fetch filtered reports:', error);
+      console.error('Failed to generate custom report:', error);
       throw this.handleError(error);
     }
   }
 
   // Export functionality
-  static async exportReport(reportType, filters = {}, format = 'csv') {
+  static async exportReport(exportConfig) {
+    const { reportType, format = 'csv', startDate, endDate, filters = {} } = exportConfig;
+    
     try {
       const response = await apiClient.post('/reports/export', {
         reportType,
-        filters,
-        format
+        format,
+        startDate,
+        endDate,
+        filters
       });
 
       return response.data;
@@ -226,7 +313,7 @@ class ReportService {
   // Check export status
   static async getExportStatus(exportId) {
     try {
-      const response = await apiClient.get(`/reports/export/status/${exportId}`);
+      const response = await apiClient.get(`/reports/status/${exportId}`);
       return response.data;
     } catch (error) {
       console.error('Failed to get export status:', error);
@@ -237,7 +324,7 @@ class ReportService {
   // Download exported file
   static async downloadExport(exportId, filename) {
     try {
-      const response = await apiClient.get(`/reports/export/download/${exportId}`, {
+      const response = await apiClient.get(`/reports/download/${exportId}`, {
         responseType: 'blob'
       });
 
@@ -254,6 +341,17 @@ class ReportService {
       return { success: true, message: 'File downloaded successfully' };
     } catch (error) {
       console.error('Failed to download export:', error);
+      throw this.handleError(error);
+    }
+  }
+
+  // Delete export file
+  static async deleteExport(exportId) {
+    try {
+      const response = await apiClient.delete(`/reports/export/${exportId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to delete export:', error);
       throw this.handleError(error);
     }
   }
@@ -278,31 +376,6 @@ class ReportService {
       return data;
     } catch (error) {
       console.error('Failed to fetch report filters:', error);
-      throw this.handleError(error);
-    }
-  }
-
-  // Get summary statistics
-  static async getSummaryStats(dateRange = '30d') {
-    const cacheKey = `summary_${dateRange}`;
-    const cached = cacheUtils.get(cacheKey);
-    if (cached) return cached;
-
-    try {
-      const response = await retryRequest(() =>
-        apiClient.get('/reports/summary', {
-          params: { dateRange }
-        })
-      );
-
-      const data = response.data;
-      if (data.success) {
-        cacheUtils.set(cacheKey, data);
-      }
-
-      return data;
-    } catch (error) {
-      console.error('Failed to fetch summary stats:', error);
       throw this.handleError(error);
     }
   }
@@ -333,10 +406,10 @@ class ReportService {
   }
 
   // Complete export workflow
-  static async exportAndDownload(reportType, filters = {}, format = 'csv') {
+  static async exportAndDownload(exportConfig) {
     try {
       // Initiate export
-      const exportResponse = await this.exportReport(reportType, filters, format);
+      const exportResponse = await this.exportReport(exportConfig);
       
       if (!exportResponse.success) {
         throw new Error(exportResponse.message || 'Failed to start export');
@@ -348,13 +421,15 @@ class ReportService {
       const statusResponse = await this.pollExportStatus(exportId);
       
       // Download file
-      const filename = statusResponse.data.filename || `${reportType}_export.${format}`;
+      const filename = statusResponse.data.filename || 
+        `${exportConfig.reportType}_export.${exportConfig.format || 'csv'}`;
       await this.downloadExport(exportId, filename);
 
       return {
         success: true,
         message: 'Report exported and downloaded successfully',
-        filename
+        filename,
+        exportId
       };
     } catch (error) {
       console.error('Export and download failed:', error);
@@ -362,13 +437,35 @@ class ReportService {
     }
   }
 
-  // Clear all report caches
-  static clearCache() {
+  // Clear report cache on backend
+  static async clearReportCache() {
+    try {
+      const response = await apiClient.get('/reports/cache/clear');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to clear report cache:', error);
+      throw this.handleError(error);
+    }
+  }
+
+  // Get report system health
+  static async getReportSystemHealth() {
+    try {
+      const response = await apiClient.get('/reports/health');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get report system health:', error);
+      return { success: false, message: 'Report system health check failed' };
+    }
+  }
+
+  // Clear local caches
+  static clearLocalCache() {
     cacheUtils.clear();
   }
 
   // Clear specific report cache
-  static clearReportCache(reportType) {
+  static clearSpecificCache(reportType) {
     cacheUtils.clear(reportType);
   }
 
@@ -379,8 +476,9 @@ class ReportService {
       const { status, data } = error.response;
       return {
         success: false,
-        message: data?.message || 'Server error occurred',
+        message: data?.error || data?.message || 'Server error occurred',
         status,
+        code: data?.code || null,
         details: data?.details || null
       };
     } else if (error.request) {
@@ -389,6 +487,7 @@ class ReportService {
         success: false,
         message: 'Network error - please check your connection',
         status: 0,
+        code: 'NETWORK_ERROR',
         details: 'No response received from server'
       };
     } else {
@@ -397,6 +496,7 @@ class ReportService {
         success: false,
         message: error.message || 'An unexpected error occurred',
         status: null,
+        code: 'UNKNOWN_ERROR',
         details: error.toString()
       };
     }
@@ -417,14 +517,35 @@ class ReportService {
     return results;
   }
 
-  // Health check
+  // Get multiple report types at once
+  static async getMultipleReports(reportConfigs) {
+    const requests = reportConfigs.map(config => {
+      switch (config.type) {
+        case 'dashboard':
+          return () => this.getDashboardReports(config.params);
+        case 'summary':
+          return () => this.getSummaryStats(config.params);
+        case 'revenue':
+          return () => this.getRevenueReports(config.params);
+        case 'performance':
+          return () => this.getPerformanceReports(config.params);
+        case 'activity':
+          return () => this.getActivityReports(config.params);
+        case 'trends':
+          return () => this.getTrendData(config.trendType, config.params);
+        case 'metrics':
+          return () => this.getBusinessMetrics(config.params);
+        default:
+          return () => Promise.reject(new Error(`Unknown report type: ${config.type}`));
+      }
+    });
+
+    return this.batchRequests(requests);
+  }
+
+  // Health check (legacy support)
   static async healthCheck() {
-    try {
-      const response = await apiClient.get('/health');
-      return response.data;
-    } catch (error) {
-      return { success: false, message: 'API health check failed' };
-    }
+    return this.getReportSystemHealth();
   }
 }
 
