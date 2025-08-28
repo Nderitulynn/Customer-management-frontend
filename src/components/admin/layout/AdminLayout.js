@@ -59,8 +59,7 @@ const AdminLayout = ({
                 )}
               </button>
               
-              <h1 className="text-xl font-semibold text-gray-900">Admin Dashboard</h1>
-            
+              <h1 className="text-xl font-semibold text-gray-900">Knotted Elegance Studio</h1>
             </div>
             
             <div className="flex items-center space-x-4">
