@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { 
   Users, 
-  Search, 
   Plus, 
   Eye, 
   Edit2, 
@@ -142,7 +141,7 @@ const CustomerCreateForm = ({ onBack, onSuccess }) => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
             >
               {isSubmitting ? 'Creating...' : 'Create Customer'}
             </button>
@@ -197,7 +196,7 @@ const CustomerEditForm = ({ customer, onBack, onSuccess }) => {
                 required
                 value={formData.fullName}
                 onChange={(e) => updateField('fullName', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
               />
               {errors.fullName && (
                 <p className="text-red-600 text-sm mt-1">{errors.fullName}</p>
@@ -212,7 +211,7 @@ const CustomerEditForm = ({ customer, onBack, onSuccess }) => {
                 required
                 value={formData.email}
                 onChange={(e) => updateField('email', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
               />
               {errors.email && (
                 <p className="text-red-600 text-sm mt-1">{errors.email}</p>
@@ -230,7 +229,7 @@ const CustomerEditForm = ({ customer, onBack, onSuccess }) => {
                 required
                 value={formData.phone}
                 onChange={(e) => updateField('phone', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
               />
               {errors.phone && (
                 <p className="text-red-600 text-sm mt-1">{errors.phone}</p>
@@ -244,7 +243,7 @@ const CustomerEditForm = ({ customer, onBack, onSuccess }) => {
                 type="text"
                 value={formData.address}
                 onChange={(e) => updateField('address', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
               />
               {errors.address && (
                 <p className="text-red-600 text-sm mt-1">{errors.address}</p>
@@ -260,7 +259,7 @@ const CustomerEditForm = ({ customer, onBack, onSuccess }) => {
               value={formData.notes}
               onChange={(e) => updateField('notes', e.target.value)}
               rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
             />
             {errors.notes && (
               <p className="text-red-600 text-sm mt-1">{errors.notes}</p>
@@ -278,7 +277,7 @@ const CustomerEditForm = ({ customer, onBack, onSuccess }) => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50"
             >
               {isSubmitting ? 'Saving...' : 'Save Changes'}
             </button>
@@ -289,14 +288,16 @@ const CustomerEditForm = ({ customer, onBack, onSuccess }) => {
   );
 };
 
-// Main AdminCustomers component - simplified with assignment support
+// Main AdminCustomers component with simple CRUD operations
 const AdminCustomers = () => {
-  const [currentView, setCurrentView] = useState('list'); // 'list', 'create', 'edit'
+  const [currentView, setCurrentView] = useState('list'); // 'list', 'create', 'edit', 'view'
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [customerToDelete, setCustomerToDelete] = useState(null);
   
   // Use the simple customer data hook
-  const { customers, stats, loading, error } = useCustomerData();
+  const { customers, stats, loading, error, deleteCustomer } = useCustomerData();
 
   // Simple navigation handlers
   const handleShowList = () => {
@@ -313,9 +314,32 @@ const AdminCustomers = () => {
     setCurrentView('edit');
   };
 
+  const handleShowView = (customer) => {
+    setSelectedCustomer(customer);
+    setCurrentView('view');
+  };
+
   const handleSuccess = (message) => {
     setSuccessMessage(message);
     setTimeout(() => setSuccessMessage(''), 5000);
+  };
+
+  const handleDeleteClick = (customer) => {
+    setCustomerToDelete(customer);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (customerToDelete && deleteCustomer) {
+      const result = await deleteCustomer(customerToDelete._id);
+      if (result.success) {
+        handleSuccess('Customer deleted successfully!');
+      } else {
+        handleSuccess('Failed to delete customer.');
+      }
+    }
+    setShowDeleteConfirm(false);
+    setCustomerToDelete(null);
   };
 
   // Render different views
@@ -342,19 +366,84 @@ const AdminCustomers = () => {
     );
   }
 
+  if (currentView === 'view' && selectedCustomer) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="max-w-2xl mx-auto">
+          <div className="mb-6">
+            <button
+              onClick={handleShowList}
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-800 mb-4"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Customers
+            </button>
+            <h1 className="text-2xl font-bold text-gray-900">View Customer</h1>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">Full Name</label>
+                  <p className="text-gray-900">{selectedCustomer.fullName || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">Email</label>
+                  <p className="text-gray-900">{selectedCustomer.email || 'N/A'}</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">Phone</label>
+                  <p className="text-gray-900">{selectedCustomer.phone || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">Address</label>
+                  <p className="text-gray-900">{selectedCustomer.address || 'N/A'}</p>
+                </div>
+              </div>
+
+              {selectedCustomer.notes && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">Notes</label>
+                  <p className="text-gray-900">{selectedCustomer.notes}</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">Created</label>
+                  <p className="text-gray-900">{new Date(selectedCustomer.createdAt).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">Assigned To</label>
+                  <p className="text-gray-900">
+                    {selectedCustomer.assignedTo ? 
+                      `${selectedCustomer.assignedTo.firstName} ${selectedCustomer.assignedTo.lastName}` : 
+                      'Unassigned'
+                    }
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Default list view
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Page Header */}
       <div className="mb-6">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Customer Management</h1>
-            <p className="text-gray-600">Manage all customer accounts</p>
-          </div>
+          <h1 className="text-2xl font-bold text-gray-900">Customers</h1>
           <button
             onClick={handleShowCreate}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
           >
             <Plus className="w-4 h-4" />
             Add Customer
@@ -376,13 +465,13 @@ const AdminCustomers = () => {
         </div>
       )}
 
-      {/* Enhanced Stats with Assignment Info */}
+      {/* Simple Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <div className="flex items-center gap-2">
             <Users className="w-5 h-5 text-blue-600" />
             <span className="text-lg font-medium text-gray-900">
-              Total Customers: {stats.totalCustomers}
+              Total: {stats.totalCustomers || 0}
             </span>
           </div>
         </div>
@@ -390,7 +479,7 @@ const AdminCustomers = () => {
           <div className="flex items-center gap-2">
             <UserCheck className="w-5 h-5 text-green-600" />
             <span className="text-lg font-medium text-gray-900">
-              Assigned: {stats.assignedCustomers}
+              Assigned: {stats.assignedCustomers || 0}
             </span>
           </div>
         </div>
@@ -398,13 +487,41 @@ const AdminCustomers = () => {
           <div className="flex items-center gap-2">
             <Users className="w-5 h-5 text-orange-600" />
             <span className="text-lg font-medium text-gray-900">
-              Unassigned: {stats.unassignedCustomers}
+              Unassigned: {stats.unassignedCustomers || 0}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Customer Table Component */}
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Delete Customer</h3>
+              <p className="text-gray-600 mb-4">
+                Are you sure you want to delete {customerToDelete?.fullName}? This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteConfirm}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Table */}
       <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -493,11 +610,25 @@ const AdminCustomers = () => {
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
+                          onClick={() => handleShowView(customer)}
+                          className="text-blue-600 hover:text-blue-800 p-1"
+                          title="View"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => handleShowEdit(customer)}
-                          className="text-gray-600 hover:text-gray-800 p-1"
+                          className="text-orange-600 hover:text-orange-800 p-1"
                           title="Edit"
                         >
                           <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteClick(customer)}
+                          className="text-red-600 hover:text-red-800 p-1"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
