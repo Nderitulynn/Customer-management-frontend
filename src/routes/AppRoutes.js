@@ -4,7 +4,7 @@ import Login from '../pages/Login';
 import CustomerRegister from '../pages/CustomerRegister';
 
 //Admin components imports
-import AdminDashboard from '../pages/admin/AdminDashboard.js';
+import AdminMain from '../pages/admin/AdminMain.js';
 
 //Assistant components imports
 import AssistantDashboard from '../pages/assistant/AssistantDashboard.js';
@@ -45,7 +45,7 @@ export default function AppRoutes() {
       {/* Protected Role-Specific Dashboard Routes */}
       <Route path="/admin-dashboard" element={
         <ProtectedRoute requiredRole="admin">
-          <AdminDashboard />
+          <AdminMain />
         </ProtectedRoute>
       } />
       
