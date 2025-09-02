@@ -5,12 +5,9 @@ import AdminLayout from '../../components/admin/layout/AdminLayout';
 // Import admin section components (avoid circular dependencies)
 import AdminDashboard from './AdminDashboard';
 import AdminCustomers from './AdminCustomers';
-// Import other admin components as needed
-// import AdminAssistants from './AdminAssistants';
-// import AdminOrders from './AdminOrders';
-// import AdminAnalytics from './AdminAnalytics';
-// import AdminReports from './AdminReports';
-// import AdminSettings from './AdminSettings';
+import AssistantsPage from './AssistantsPage';
+import AdminOrders from './AdminOrders';
+import AdminReports from './AdminReports';
 
 const AdminMain = () => {
   // State management for active section and sidebar
@@ -36,17 +33,12 @@ const AdminMain = () => {
         return <AdminDashboard />;
       case 'customers':
         return <AdminCustomers />;
-      // Add other cases as you create the components
-      // case 'assistants':
-      //   return <AdminAssistants />;
-      // case 'orders':
-      //   return <AdminOrders />;
-      // case 'analytics':
-      //   return <AdminAnalytics />;
-      // case 'reports':
-      //   return <AdminReports />;
-      // case 'settings':
-      //   return <AdminSettings />;
+      case 'assistants':  
+        return <AssistantsPage />;
+      case 'orders':
+        return <AdminOrders />;
+      case 'reports':
+        return <AdminReports />;
       default:
         return <AdminDashboard />;
     }
