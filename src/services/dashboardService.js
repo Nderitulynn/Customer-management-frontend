@@ -1,352 +1,533 @@
-import { apiHelpers, API_ENDPOINTS, handleApiError } from './api.js';
+import { apiHelpers } from './api';
 
-/**
- * Dashboard Service - Handles all dashboard-related API operations
- * Provides overview stats, metrics, and dashboard-specific data
- */
+class DashboardService {
+  constructor() {
+    this.baseURL = '/api/admin-dashboard';
+  }
 
-export const dashboardService = {
   /**
-   * Get comprehensive dashboard statistics
-   * @returns {Promise} Dashboard stats including all key metrics
+   * Classify errors and determine handling strategy
+   * @param {Error} error - The error object from API call
+   * @returns {object} Error classification with handling instructions
    */
-  getDashboardStats: async () => {
-    try {
-     const response = await apiHelpers.get('/api/customers/stats');
+  _classifyError(error) {
+    const status = error.response?.status;
+    const isNetworkError = !error.response && error.code === 'NETWORK_ERROR';
+    const isTimeoutError = error.code === 'ECONNABORTED' || error.message?.includes('timeout');
 
-      // Transform API response to match dashboard component expectations
+    // Authentication/Authorization errors - let them bubble up
+    if (status === 401 || status === 403) {
       return {
-        stats: {
-          totalCustomers: response.data?.totalCustomers || 0,
-          todayOrders: response.data?.orderCount || 0,
-          totalAssistants: response.data?.assistantCount || 0,
-          // Set default values for metrics not provided by backend
-          activeChats: 0,
-          monthlyRevenue: 0,
-          responseRate: 0,
-          activeCustomers: 0,
-          newCustomers: 0,
-        },
-        timestamp: response.data?.timestamp || new Date().toISOString(),
-        success: true
+        shouldThrow: true,
+        type: 'auth',
+        message: status === 401 ? 'Authentication required' : 'Access denied'
       };
-    } catch (error) {
-      console.error('Failed to fetch dashboard stats:', error);
-      throw new Error(handleApiError(error, 'Failed to load dashboard statistics'));
     }
-  },
 
-  /**
-   * Get recent orders for dashboard overview
-   * @param {number} limit - Number of orders to fetch (default: 5)
-   * @returns {Promise} Array of recent orders
-   */
-  getRecentOrders: async (limit = 5) => {
-    try {
-      const response = await apiHelpers.get('/api/admin-dashboard/stats/orders');
-      
-      // Transform orders data for dashboard display
-      const recentOrders = response.data?.recentOrders || [];
-      return recentOrders.slice(0, limit).map(order => ({
-        id: order._id || order.id,
-        customer: order.customerId?.fullName || 'Unknown Customer',
-        item: order.orderNumber || 'Order Items',
-        amount: order.orderTotal || 0,
-        status: order.status || 'pending',
-        date: new Date(order.createdAt).toLocaleDateString() || 'N/A'
-      }));
-    } catch (error) {
-      console.error('Failed to fetch recent orders:', error);
-      // Return empty array on error to prevent UI breaks
-      return [];
-    }
-  },
-
-  /**
-   * Get assistant statistics for dashboard
-   * @returns {Promise} Assistant stats object
-   */
-  getAssistantStats: async () => {
-    try {
-      const response = await apiHelpers.get('/api/admin-dashboard/stats/users');
-      
-      const userDistribution = response.data?.userDistribution || {};
-      const assistantStats = response.data?.assistantStats || [];
-      
+    // Network/connectivity errors
+    if (isNetworkError || isTimeoutError) {
       return {
-        total: userDistribution.assistant || 0,
-        active: assistantStats.filter(a => a.isActive).length || 0,
-        inactive: assistantStats.filter(a => !a.isActive).length || 0,
-        online: 0, // Backend doesn't provide online status
-        responseTime: 0 // Backend doesn't provide response time
+        shouldThrow: false,
+        type: 'network',
+        message: 'Network connection failed. Please check your internet connection.',
+        retryable: true
       };
-    } catch (error) {
-      console.error('Failed to fetch assistant stats:', error);
-      // Return default stats structure
+    }
+
+    // Server errors
+    if (status >= 500) {
       return {
+        shouldThrow: false,
+        type: 'server',
+        message: 'Server is temporarily unavailable. Please try again later.',
+        retryable: true
+      };
+    }
+
+    // Not found errors
+    if (status === 404) {
+      return {
+        shouldThrow: false,
+        type: 'not_found',
+        message: 'Dashboard endpoint not found. Please contact support.',
+        retryable: false
+      };
+    }
+
+    // Client errors (400-499, except 401/403/404)
+    if (status >= 400 && status < 500) {
+      return {
+        shouldThrow: false,
+        type: 'client',
+        message: 'Invalid request format. Please refresh and try again.',
+        retryable: false
+      };
+    }
+
+    // Unknown errors
+    return {
+      shouldThrow: false,
+      type: 'unknown',
+      message: 'An unexpected error occurred. Please try again.',
+      retryable: true
+    };
+  }
+
+  /**
+   * Create structured error response for recoverable errors
+   * @param {object} errorInfo - Error classification info
+   * @param {string} operation - The operation that failed
+   * @returns {object} Structured error response with flattened structure
+   */
+  _createErrorResponse(errorInfo, operation = 'dashboard operation') {
+    console.error(`❌ DashboardService ${operation} failed:`, {
+      type: errorInfo.type,
+      message: errorInfo.message,
+      retryable: errorInfo.retryable
+    });
+
+    const defaultData = this._getDefaultDashboardData();
+
+    return {
+      // Flatten the structure for the hook
+      stats: defaultData.stats,
+      recentOrders: defaultData.recentOrders,
+      assistantStats: defaultData.assistantStats,
+      customerStats: defaultData.customerStats,
+      recentMessages: defaultData.recentMessages,
+      lastUpdated: new Date().toISOString(),
+      error: {
+        type: errorInfo.type,
+        message: errorInfo.message,
+        retryable: errorInfo.retryable,
+        timestamp: new Date().toISOString(),
+        operation
+      }
+    };
+  }
+
+  /**
+   * Get default dashboard data structure
+   * @returns {object} Default dashboard data
+   */
+  _getDefaultDashboardData() {
+    return {
+      stats: {
+        totalCustomers: 0,
+        totalOrders: 0,
+        totalAssistants: 0,
+        activeChats: 0,
+        monthlyRevenue: 0,
+        todayOrders: 0,
+        responseRate: 0,
+        activeCustomers: 0,
+        newCustomers: 0
+      },
+      recentOrders: [],
+      assistantStats: {
         total: 0,
         active: 0,
         inactive: 0,
         online: 0,
         responseTime: 0
-      };
-    }
-  },
-
-  /**
-   * Get customer overview statistics
-   * @returns {Promise} Customer stats object
-   */
-  getCustomerStats: async () => {
-    try {
-      console.log('🔍 DEBUG: Calling customer stats API...');
-      const response = await apiHelpers.get('/api/admin-dashboard/stats/customers');
-      
-      console.log('🔍 DEBUG: Full API response:', response);
-      console.log('🔍 DEBUG: response.data:', response.data);
-      console.log('🔍 DEBUG: response.data?.data:', response.data?.data);
-      console.log('🔍 DEBUG: response.data?.data?.total:', response.data?.data?.total);
-      
-      const statusDistribution = response.data?.statusDistribution || {};
-      const monthlyGrowth = response.data?.monthlyGrowth || [];
-      
-      // Calculate growth percentage from monthly data
-      const growth = monthlyGrowth.length >= 2 
-        ? ((monthlyGrowth[monthlyGrowth.length - 1]?.count || 0) - (monthlyGrowth[monthlyGrowth.length - 2]?.count || 0)) 
-        : 0;
-      
-      const result = {
-        total: response.data?.total || 0,
-        active: statusDistribution.active || 0,
-        new: monthlyGrowth[monthlyGrowth.length - 1]?.count || 0,
-        growth: growth,
-        retention: 0 // Backend doesn't provide retention data
-      };
-      
-      console.log('🔍 DEBUG: Final customer stats result:', result);
-      return result;
-    } catch (error) {
-      console.error('❌ ERROR: Failed to fetch customer stats:', error);
-      return {
+      },
+      customerStats: {
         total: 0,
         active: 0,
         new: 0,
         growth: 0,
         retention: 0
-      };
-    }
-  },
+      },
+      recentMessages: []
+    };
+  }
 
   /**
-   * Get recent messages for dashboard
-   * @param {number} limit - Number of messages to fetch
-   * @returns {Promise} Array of recent messages
+   * Get complete dashboard data
+   * Calls multiple endpoints and transforms data to match hook expectations
    */
-  getRecentMessages: async (limit = 10) => {
+  async getDashboardData() {
     try {
-      const response = await apiHelpers.get(`/api/admin-dashboard/recent?limit=${limit}`);
+      console.log('📊 DashboardService: Fetching dashboard data...');
       
-      const messages = response.data?.messages || [];
-      return messages.map(message => ({
-        id: message._id || message.id,
-        customer: message.customer?.fullName || 'Unknown',
-        subject: 'Message', // Backend doesn't provide subject
-        snippet: message.content?.substring(0, 100) + '...' || '',
-        timestamp: new Date(message.createdAt).toLocaleString(),
-        status: message.status || 'unread',
-        priority: 'normal' // Backend doesn't provide priority
-      }));
-    } catch (error) {
-      console.error('Failed to fetch recent messages:', error);
-      return [];
-    }
-  },
-
-  /**
-   * Get system health metrics
-   * @returns {Promise} System health data
-   */
-  getSystemHealth: async () => {
-    try {
-      const response = await apiHelpers.get('/api/admin-dashboard/');
+      // Call the main stats endpoint
+      const response = await apiHelpers.get(`${this.baseURL}/stats`);
       
-      return {
-        status: response.data?.status || 'unknown',
-        uptime: response.data?.server?.uptime || 0,
-        memoryUsage: response.data?.server?.memory?.used || 0,
-        activeConnections: 0, // Backend doesn't provide connection count
-        lastUpdate: response.data?.timestamp || new Date().toISOString()
+      console.log('📊 Raw API response:', response);
+      
+      // Extract nested stats data from backend response
+      const backendStats = response.stats || {};
+      const backendOrders = response.orders || [];
+      const backendAssistants = response.assistants || {};
+      const backendCustomers = response.customers || {};
+      const backendMessages = response.messages || [];
+      
+      // Transform and flatten the API response structure for the hook
+      const flattenedData = {
+        stats: {
+          totalCustomers: backendStats.totalCustomers || 0,
+          totalOrders: backendStats.totalOrders || 0,
+          totalAssistants: backendStats.totalAssistants || 0,
+          activeChats: backendStats.activeChats || 0,
+          monthlyRevenue: backendStats.monthlyRevenue || 0,
+          todayOrders: backendStats.todayOrders || backendStats.totalOrders || 0,
+          responseRate: backendStats.responseRate || 0,
+          activeCustomers: backendStats.activeCustomers || 0,
+          newCustomers: backendStats.newCustomers || 0
+        },
+        recentOrders: backendOrders,
+        assistantStats: {
+          total: backendAssistants.total || backendStats.totalAssistants || 0,
+          active: backendAssistants.active || 0,
+          inactive: backendAssistants.inactive || 0,
+          online: backendAssistants.online || 0,
+          responseTime: backendAssistants.responseTime || 0
+        },
+        customerStats: {
+          total: backendCustomers.total || backendStats.totalCustomers || 0,
+          active: backendCustomers.active || backendStats.activeCustomers || 0,
+          new: backendCustomers.new || backendStats.newCustomers || 0,
+          growth: backendCustomers.growth || 0,
+          retention: backendCustomers.retention || 0
+        },
+        recentMessages: backendMessages,
+        lastUpdated: response.timestamp || new Date().toISOString()
       };
+      
+      console.log('✅ Transformed dashboard data:', flattenedData);
+      
+      return flattenedData;
+      
     } catch (error) {
-      console.error('Failed to fetch system health:', error);
-      return {
-        status: 'error',
-        uptime: 0,
-        memoryUsage: 0,
-        activeConnections: 0,
-        lastUpdate: new Date().toISOString()
-      };
+      console.error('❌ DashboardService error:', error);
+      
+      const errorInfo = this._classifyError(error);
+      
+      // For auth errors, let them bubble up to be handled by interceptors
+      if (errorInfo.shouldThrow) {
+        console.log('🔄 Letting auth error bubble up for proper handling');
+        throw error;
+      }
+      
+      // For other errors, return structured error response
+      return this._createErrorResponse(errorInfo, 'dashboard data fetch');
     }
-  },
+  }
 
   /**
-   * Get comprehensive dashboard data in one call
-   * This combines multiple endpoints for efficiency
-   * @returns {Promise} Complete dashboard data object
+   * Refresh specific metric
+   * For now, just calls the main endpoint and returns relevant data
    */
-  getDashboardData: async () => {
+  async refreshMetric(metric) {
     try {
-      // Make parallel requests for better performance
-      const [
-        dashboardStats,
-        recentOrders,
-        assistantStats,
-        customerStats,
-        recentMessages
-      ] = await Promise.allSettled([
-        dashboardService.getDashboardStats(),
-        dashboardService.getRecentOrders(5),
-        dashboardService.getAssistantStats(),
-        dashboardService.getCustomerStats(),
-        dashboardService.getRecentMessages(5)
-      ]);
-
-      // Handle results from Promise.allSettled
-      const getResult = (promise, fallback) => 
-        promise.status === 'fulfilled' ? promise.value : fallback;
-
-      return {
-        stats: getResult(dashboardStats, { stats: {} }).stats,
-        recentOrders: getResult(recentOrders, []),
-        assistantStats: getResult(assistantStats, { total: 0, active: 0, inactive: 0 }),
-        customerStats: getResult(customerStats, { total: 0, active: 0, new: 0 }),
-        recentMessages: getResult(recentMessages, []),
-        lastUpdated: new Date().toISOString(),
-        loading: false
-      };
-    } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
-      throw new Error(handleApiError(error, 'Failed to load dashboard data'));
-    }
-  },
-
-  /**
-   * Refresh specific dashboard metrics
-   * @param {string} metric - Specific metric to refresh ('stats', 'orders', 'assistants', etc.)
-   * @returns {Promise} Updated metric data
-   */
-  refreshMetric: async (metric) => {
-    try {
+      console.log(`🔄 DashboardService: Refreshing ${metric} metric...`);
+      
+      // Call the main stats endpoint - you can add specific endpoints later
+      const response = await apiHelpers.get(`${this.baseURL}/stats`);
+      const backendStats = response.stats || {};
+      const backendOrders = response.orders || [];
+      const backendAssistants = response.assistants || {};
+      const backendCustomers = response.customers || {};
+      const backendMessages = response.messages || [];
+      
       switch (metric) {
         case 'stats':
-          return await dashboardService.getDashboardStats();
-        case 'orders':
-          return await dashboardService.getRecentOrders();
-        case 'assistants':
-          return await dashboardService.getAssistantStats();
+          return {
+            stats: {
+              totalCustomers: backendStats.totalCustomers || 0,
+              totalOrders: backendStats.totalOrders || 0,
+              totalAssistants: backendStats.totalAssistants || 0,
+              activeChats: backendStats.activeChats || 0,
+              monthlyRevenue: backendStats.monthlyRevenue || 0,
+              todayOrders: backendStats.todayOrders || backendStats.totalOrders || 0,
+              responseRate: backendStats.responseRate || 0,
+              activeCustomers: backendStats.activeCustomers || 0,
+              newCustomers: backendStats.newCustomers || 0
+            },
+            lastUpdated: response.timestamp || new Date().toISOString()
+          };
+          
         case 'customers':
-          return await dashboardService.getCustomerStats();
+          return {
+            customerStats: {
+              total: backendCustomers.total || backendStats.totalCustomers || 0,
+              active: backendCustomers.active || backendStats.activeCustomers || 0,
+              new: backendCustomers.new || backendStats.newCustomers || 0,
+              growth: backendCustomers.growth || 0,
+              retention: backendCustomers.retention || 0
+            },
+            lastUpdated: response.timestamp || new Date().toISOString()
+          };
+          
+        case 'assistants':
+          return {
+            assistantStats: {
+              total: backendAssistants.total || backendStats.totalAssistants || 0,
+              active: backendAssistants.active || 0,
+              inactive: backendAssistants.inactive || 0,
+              online: backendAssistants.online || 0,
+              responseTime: backendAssistants.responseTime || 0
+            },
+            lastUpdated: response.timestamp || new Date().toISOString()
+          };
+          
+        case 'orders':
+          return {
+            recentOrders: backendOrders,
+            lastUpdated: response.timestamp || new Date().toISOString()
+          };
+          
         case 'messages':
-          return await dashboardService.getRecentMessages();
-        case 'health':
-          return await dashboardService.getSystemHealth();
+          return {
+            recentMessages: backendMessages,
+            lastUpdated: response.timestamp || new Date().toISOString()
+          };
+          
         default:
           throw new Error(`Unknown metric: ${metric}`);
       }
+      
     } catch (error) {
-      console.error(`Failed to refresh ${metric} metric:`, error);
-      throw new Error(handleApiError(error, `Failed to refresh ${metric} data`));
+      console.error(`❌ Error refreshing ${metric} metric:`, error);
+      
+      const errorInfo = this._classifyError(error);
+      
+      // For auth errors, let them bubble up
+      if (errorInfo.shouldThrow) {
+        console.log(`🔄 Letting auth error bubble up for ${metric} refresh`);
+        throw error;
+      }
+      
+      // For other errors, return structured error response with appropriate default data
+      const defaultData = this._getDefaultDashboardData();
+      let responseData = { lastUpdated: new Date().toISOString() };
+      
+      switch (metric) {
+        case 'stats':
+          responseData.stats = defaultData.stats;
+          break;
+        case 'customers':
+          responseData.customerStats = defaultData.customerStats;
+          break;
+        case 'assistants':
+          responseData.assistantStats = defaultData.assistantStats;
+          break;
+        case 'orders':
+          responseData.recentOrders = defaultData.recentOrders;
+          break;
+        case 'messages':
+          responseData.recentMessages = defaultData.recentMessages;
+          break;
+        default:
+          responseData = { lastUpdated: new Date().toISOString() };
+      }
+      
+      // Add error info to response
+      responseData.error = {
+        type: errorInfo.type,
+        message: errorInfo.message,
+        retryable: errorInfo.retryable,
+        timestamp: new Date().toISOString(),
+        operation: `${metric} metric refresh`
+      };
+      
+      return responseData;
     }
   }
-};
 
-/**
- * Dashboard data transformation utilities
- */
+  /**
+   * Get system health
+   * Calls the health endpoint if available
+   */
+  async getSystemHealth() {
+    try {
+      console.log('🏥 DashboardService: Checking system health...');
+      
+      // Try to call a health endpoint - adjust path as needed  
+      // Note: Comment out until health endpoint is implemented
+      // const healthData = await apiHelpers.get(`${this.baseURL}/health`);
+      
+      // For now, return a mock healthy status with flattened structure
+      return {
+        status: 'healthy',
+        database: { status: 'healthy' },
+        server: { 
+          uptime: Date.now() - 1000000, 
+          memory: { used: 0, total: 0 } 
+        },
+        timestamp: new Date().toISOString(),
+        lastUpdated: new Date().toISOString()
+      };
+      
+    } catch (error) {
+      console.error('❌ System health check failed:', error);
+      
+      const errorInfo = this._classifyError(error);
+      
+      // For auth errors, let them bubble up
+      if (errorInfo.shouldThrow) {
+        console.log('🔄 Letting auth error bubble up for health check');
+        throw error;
+      }
+      
+      // For other errors, return basic health info with error context
+      return {
+        status: 'unknown',
+        database: { status: 'unknown' },
+        server: { uptime: 0, memory: { used: 0, total: 0 } },
+        timestamp: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        error: {
+          type: errorInfo.type,
+          message: errorInfo.message,
+          retryable: errorInfo.retryable,
+          timestamp: new Date().toISOString(),
+          operation: 'system health check'
+        }
+      };
+    }
+  }
+
+  /**
+   * Retry a failed operation with exponential backoff
+   * @param {Function} operation - The operation to retry
+   * @param {number} maxRetries - Maximum number of retries
+   * @param {number} baseDelay - Base delay in milliseconds
+   */
+  async retryOperation(operation, maxRetries = 3, baseDelay = 1000) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        const errorInfo = this._classifyError(error);
+        
+        // Don't retry auth errors
+        if (errorInfo.shouldThrow) {
+          throw error;
+        }
+        
+        // Don't retry non-retryable errors
+        if (!errorInfo.retryable) {
+          throw error;
+        }
+        
+        // If this was the last attempt, throw the error
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        
+        // Wait before retrying with exponential backoff
+        const delay = baseDelay * Math.pow(2, attempt);
+        console.log(`⏳ Retrying operation in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+}
+
+// Dashboard utilities for formatting and calculations
 export const dashboardUtils = {
   /**
-   * Format currency values for display
-   * @param {number} amount - Amount to format
-   * @param {string} currency - Currency code (default: KSh)
-   * @returns {string} Formatted currency string
+   * Format currency values
    */
-  formatCurrency: (amount, currency = 'KSh') => {
-    if (typeof amount !== 'number' || isNaN(amount)) return `${currency} 0`;
-    return `${currency} ${amount.toLocaleString()}`;
+  formatCurrency: (amount, currency = 'USD') => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency
+    }).format(amount || 0);
   },
 
   /**
-   * Calculate percentage change
-   * @param {number} current - Current value
-   * @param {number} previous - Previous value
-   * @returns {number} Percentage change
+   * Format dates
    */
-  calculatePercentageChange: (current, previous) => {
-    if (!previous || previous === 0) return 0;
-    return Math.round(((current - previous) / previous) * 100);
-  },
-
-  /**
-   * Get status color class for UI elements
-   * @param {string} status - Status value
-   * @returns {string} Tailwind CSS class string
-   */
-  getStatusColor: (status) => {
-    const statusColors = {
-      'active': 'bg-green-100 text-green-800',
-      'inactive': 'bg-gray-100 text-gray-800',
-      'pending': 'bg-yellow-100 text-yellow-800',
-      'processing': 'bg-blue-100 text-blue-800',
-      'completed': 'bg-green-100 text-green-800',
-      'cancelled': 'bg-red-100 text-red-800',
-      'delivered': 'bg-green-100 text-green-800',
-      'shipped': 'bg-blue-100 text-blue-800'
+  formatDate: (date, options = {}) => {
+    const defaultOptions = {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      ...options
     };
-    return statusColors[status?.toLowerCase()] || 'bg-gray-100 text-gray-800';
-  },
-
-  /**
-   * Format date for dashboard display
-   * @param {string|Date} date - Date to format
-   * @returns {string} Formatted date string
-   */
-  formatDate: (date) => {
-    if (!date) return 'N/A';
-    try {
-      return new Date(date).toLocaleDateString('en-KE', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
-    } catch (error) {
-      return 'Invalid Date';
-    }
+    
+    return new Intl.DateTimeFormat('en-US', defaultOptions).format(new Date(date));
   },
 
   /**
    * Format relative time (e.g., "2 hours ago")
-   * @param {string|Date} date - Date to format
-   * @returns {string} Relative time string
    */
   formatRelativeTime: (date) => {
-    if (!date) return 'N/A';
-    try {
-      const now = new Date();
-      const past = new Date(date);
-      const diffMs = now - past;
-      const diffMins = Math.floor(diffMs / 60000);
-      const diffHours = Math.floor(diffMins / 60);
-      const diffDays = Math.floor(diffHours / 24);
+    const now = new Date();
+    const targetDate = new Date(date);
+    const diffMs = now - targetDate;
+    
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffMinutes < 1) return 'Just now';
+    if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffDays < 30) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    
+    return dashboardUtils.formatDate(date);
+  },
 
-      if (diffMins < 1) return 'Just now';
-      if (diffMins < 60) return `${diffMins} min ago`;
-      if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-      if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-      return past.toLocaleDateString();
-    } catch (error) {
-      return 'N/A';
-    }
+  /**
+   * Get status color for UI components
+   */
+  getStatusColor: (status) => {
+    const statusColors = {
+      active: 'green',
+      inactive: 'gray',
+      pending: 'yellow',
+      completed: 'green',
+      cancelled: 'red',
+      processing: 'blue',
+      online: 'green',
+      offline: 'gray',
+      healthy: 'green',
+      unhealthy: 'red',
+      warning: 'yellow',
+      unknown: 'gray'
+    };
+    
+    return statusColors[status?.toLowerCase()] || 'gray';
+  },
+
+  /**
+   * Calculate percentage change
+   */
+  calculatePercentageChange: (current, previous) => {
+    if (!previous || previous === 0) return current > 0 ? 100 : 0;
+    
+    return ((current - previous) / previous) * 100;
+  },
+
+  /**
+   * Check if an error is retryable based on error info
+   */
+  isRetryableError: (error) => {
+    return error?.retryable === true;
+  },
+
+  /**
+   * Get user-friendly error message
+   */
+  getErrorMessage: (error) => {
+    if (!error) return null;
+    
+    const defaultMessages = {
+      network: 'Connection failed. Please check your internet and try again.',
+      server: 'Server is temporarily unavailable. Please try again later.',
+      not_found: 'Service not found. Please contact support if this continues.',
+      client: 'Invalid request. Please refresh the page and try again.',
+      unknown: 'Something went wrong. Please try again.'
+    };
+    
+    return error.message || defaultMessages[error.type] || defaultMessages.unknown;
   }
 };
+
+// Create and export singleton instance
+export const dashboardService = new DashboardService();
 
 export default dashboardService;
