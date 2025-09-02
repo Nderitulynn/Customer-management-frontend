@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Package, User, FileText, MessageCircle, Settings } from 'lucide-react';
+import { Home, Package, User, FileText, Settings } from 'lucide-react';
 
 const CustomerSidebar = ({ 
   activeSection, 
@@ -27,12 +27,13 @@ const CustomerSidebar = ({
       description: 'Create new order',
       icon: FileText,
     },
-    {
-      id: 'messages',
-      label: 'Messages',
-      description: 'Communication',
-      icon: MessageCircle,
-    },
+    // Messages menu item removed
+    // {
+    //   id: 'messages',
+    //   label: 'Messages',
+    //   description: 'Communication',
+    //   icon: MessageCircle,
+    // },
     {
       id: 'profile',
       label: 'Settings',

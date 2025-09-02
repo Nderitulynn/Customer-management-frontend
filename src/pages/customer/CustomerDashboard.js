@@ -25,7 +25,6 @@ import {
   ArrowRight,
   User,
   FileText,
-  MessageCircle,
   Star,
   Activity,
   Eye,
@@ -494,30 +493,34 @@ const CustomerDashboard = () => {
             </div>
           </div>
 
-          
-          
-            
-            
+          {/* Recent Activity Placeholder */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">Recent Activity</h2>
+            </div>
+            <div className="p-6">
               {dashboardData?.recentActivity?.length > 0 ? (
                 <div className="space-y-4">
                   {dashboardData.recentActivity.map((activity) => (
                     <div key={activity._id || activity.id} className="flex items-start space-x-3">
-                     
-                    
+                      <div className="flex items-center space-x-2">
+                        <Activity className="h-4 w-4 text-gray-400" />
+                        <p className="text-sm text-gray-600">{activity.description}</p>
+                      </div>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="text-center py-8">
-                  
-                  
-                 
+                  <Activity className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500">No recent activity</p>
+                  <p className="text-sm text-gray-400 mt-2">Activity will appear here as you use the system</p>
                 </div>
               )}
             </div>
           </div>
-       
-     
+        </div>
+      </div>
     );
   };
 
