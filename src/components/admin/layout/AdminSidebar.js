@@ -43,7 +43,12 @@ const AdminSidebar = ({
       icon: ShoppingCart,
       section: 'main'
     },
-    
+    {
+      id: 'analytics',
+      label: 'Analytics',
+      icon: BarChart3,
+      section: 'main'
+    },
     {
       id: 'reports',
       label: 'Reports',
@@ -92,22 +97,6 @@ const AdminSidebar = ({
 
   return (
     <div className="h-full bg-white border-r border-gray-200 flex flex-col">
-      {/* Sidebar Header */}
-      <div className={`border-b border-gray-200 transition-all duration-300 ${
-        isCollapsed ? 'p-3' : 'p-6'
-      }`}>
-        <div className={`flex items-center ${isCollapsed ? 'justify-center' : ''}`}>
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-sm font-bold">K</span>
-          </div>
-          {!isCollapsed && (
-            <div className="ml-3 transition-opacity duration-300">
-              <h2 className="text-lg font-semibold text-gray-900">Knotted Elegance Studio</h2>
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* Navigation Menu */}
       <nav className={`flex-1 overflow-y-auto transition-all duration-300 ${
         isCollapsed ? 'px-2 py-4' : 'px-4 py-6'
